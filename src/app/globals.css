@@ -1,0 +1,8 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * { box-sizing: border-box; }
+  .font-mono { font-family: var(--font-mono), 'JetBrains Mono', monospace; }
+}
