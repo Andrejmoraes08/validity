@@ -14,7 +14,7 @@ export default function ConfigPage() {
   const { itens, fetchItens } = useItens()
   const { toast } = useToast()
   const { isAdmin } = usePerfílContext()
-  const { perfis, loading: perfisLoading, updatePerfil } = usePerfis()
+  const { perfis, loading: perfisLoading, tabelaOk, updatePerfil } = usePerfis()
 
   const fileRef = useRef<HTMLInputElement>(null)
   const [config, setConfig] = useState<Partial<Config>>({ gsheets_url: '', responsavel: '' })
@@ -146,48 +146,101 @@ export default function ConfigPage() {
         <p className="text-sm text-gray-400">Importar, exportar e integrar dados</p>
       </div>
 
-      {/* Gestão de usuários — somente admin */}
+      {/* Controle de Acesso — somente admin */}
       {isAdmin && (
-        <div className="bg-white rounded-xl border border-blue-100 p-6 shadow-sm flex flex-col gap-4">
-          <div>
-            <h2 className="font-bold text-gray-800 text-sm">Controle de Acesso</h2>
-            <p className="text-xs text-gray-400 mt-0.5">Gerencie permissões de abas por usuário</p>
+        <div className="bg-white rounded-xl border border-blue-100 shadow-sm overflow-hidden">
+          {/* Cabeçalho */}
+          <div className="flex items-center justify-between px-6 py-4 bg-blue-50 border-b border-blue-100">
+            <div>
+              <h2 className="font-bold text-blue-900 text-sm">Controle de Acesso</h2>
+              <p className="text-xs text-blue-500 mt-0.5">Gerencie permissões de abas por usuário</p>
+            </div>
+            <span className="text-[11px] font-bold bg-blue-600 text-white px-2 py-0.5 rounded-full">
+              {perfis.length} usuário{perfis.length !== 1 ? 's' : ''}
+            </span>
           </div>
 
-          {perfisLoading ? (
-            <div className="flex items-center justify-center h-16">
-              <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-            </div>
-          ) : perfis.length === 0 ? (
-            <p className="text-xs text-gray-400 text-center py-4">Nenhum usuário registrado ainda</p>
-          ) : (
-            <div className="flex flex-col gap-2">
-              {perfis.map(p => (
-                <div key={p.id} className="flex items-center justify-between gap-3 border border-gray-100 rounded-lg px-4 py-3 hover:bg-gray-50">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-semibold text-gray-800 truncate">{p.nome || p.email}</span>
-                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${roleColors[p.role]}`}>
-                        {roleLabel[p.role]}
-                      </span>
-                    </div>
-                    <div className="text-xs text-gray-400 mt-0.5 truncate">{p.email}</div>
-                    <div className="flex flex-wrap gap-1 mt-1.5">
-                      {TODAS_TABS.map(t => (
-                        <span key={t.key}
-                          className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${p.tabs_permitidas.includes(t.key) ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-300'}`}>
-                          {t.label}
+          <div className="p-6 flex flex-col gap-3">
+            {/* Migration não rodada */}
+            {!tabelaOk && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 flex flex-col gap-2">
+                <div className="text-sm font-bold text-amber-800">⚠ Tabela de perfis não encontrada</div>
+                <p className="text-xs text-amber-700">
+                  Execute a migration no Supabase: <strong>SQL Editor → cole o arquivo</strong>{' '}
+                  <code className="font-mono bg-amber-100 px-1 rounded">supabase/migrations/002_perfis.sql</code>{' '}
+                  → Run
+                </p>
+              </div>
+            )}
+
+            {/* Carregando */}
+            {perfisLoading && tabelaOk && (
+              <div className="flex items-center justify-center h-16">
+                <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+              </div>
+            )}
+
+            {/* Lista vazia */}
+            {!perfisLoading && tabelaOk && perfis.length === 0 && (
+              <div className="text-center py-6 flex flex-col gap-2">
+                <div className="text-2xl">👤</div>
+                <p className="text-sm font-semibold text-gray-600">Nenhum usuário registrado ainda</p>
+                <p className="text-xs text-gray-400 max-w-xs mx-auto">
+                  Crie usuários no painel do Supabase em{' '}
+                  <strong>Authentication → Users → Add user</strong>.
+                  Eles aparecerão aqui após o primeiro login.
+                </p>
+              </div>
+            )}
+
+            {/* Lista de usuários */}
+            {!perfisLoading && tabelaOk && perfis.length > 0 && (
+              <div className="flex flex-col gap-2">
+                {perfis.map(p => (
+                  <div key={p.id}
+                    className="flex items-start justify-between gap-3 border border-gray-100 rounded-xl px-4 py-3 hover:bg-gray-50 transition-colors">
+                    <div className="flex-1 min-w-0">
+                      {/* Nome e role */}
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-bold text-gray-900 truncate">
+                          {p.nome || '—'}
                         </span>
-                      ))}
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${roleColors[p.role]}`}>
+                          {roleLabel[p.role]}
+                        </span>
+                      </div>
+                      {/* Email */}
+                      <div className="text-xs text-gray-400 mt-0.5 font-mono truncate">{p.email}</div>
+                      {/* Abas permitidas */}
+                      <div className="flex flex-wrap gap-1 mt-2">
+                        {TODAS_TABS.map(t => (
+                          <span key={t.key}
+                            className={`text-[10px] px-2 py-0.5 rounded font-semibold border ${
+                              p.tabs_permitidas.includes(t.key)
+                                ? 'bg-blue-50 text-blue-700 border-blue-200'
+                                : 'bg-gray-50 text-gray-300 border-gray-100'
+                            }`}>
+                            {t.label}
+                          </span>
+                        ))}
+                      </div>
                     </div>
+                    <Button size="sm" variant="secondary" onClick={() => setEditPerfil({ ...p })}
+                      className="flex-shrink-0 mt-0.5">
+                      Editar acesso
+                    </Button>
                   </div>
-                  <Button size="sm" variant="secondary" onClick={() => setEditPerfil({ ...p })}>
-                    Editar
-                  </Button>
-                </div>
-              ))}
-            </div>
-          )}
+                ))}
+              </div>
+            )}
+
+            {/* Dica para adicionar usuários */}
+            {!perfisLoading && tabelaOk && (
+              <p className="text-[11px] text-gray-400 text-center mt-1">
+                Novos usuários: <strong>Supabase → Authentication → Users → Add user</strong> (marque Auto Confirm)
+              </p>
+            )}
+          </div>
         </div>
       )}
 

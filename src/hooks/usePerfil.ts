@@ -98,14 +98,20 @@ export function usePerfil(user: User | null) {
 export function usePerfis() {
   const [perfis, setPerfis] = useState<Perfil[]>([])
   const [loading, setLoading] = useState(true)
+  const [tabelaOk, setTabelaOk] = useState(true)
 
   const fetchAll = useCallback(async () => {
     setLoading(true)
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('perfis')
       .select('*')
       .order('created_at')
-    if (data) setPerfis(data as Perfil[])
+    if (error) {
+      setTabelaOk(false)
+    } else {
+      setTabelaOk(true)
+      if (data) setPerfis(data as Perfil[])
+    }
     setLoading(false)
   }, [])
 
@@ -117,5 +123,5 @@ export function usePerfis() {
     return { error }
   }
 
-  return { perfis, loading, updatePerfil, reload: fetchAll }
+  return { perfis, loading, tabelaOk, updatePerfil, reload: fetchAll }
 }
