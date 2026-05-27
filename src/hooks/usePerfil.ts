@@ -21,11 +21,12 @@ export const TODAS_TABS = [
   { key: 'estoque',     label: 'Estoque' },
   { key: 'plano-acao',  label: 'Plano de Ação' },
   { key: 'inspecao',    label: 'Inspeção' },
+  { key: 'wms',         label: 'WMS' },
   { key: 'bloqueios',   label: 'Bloqueios e Perdas' },
   { key: 'config',      label: 'Configurações' },
 ]
 
-const TABS_PADRAO_OPERADOR = ['dashboard', 'estoque', 'inspecao']
+const TABS_PADRAO_OPERADOR = ['dashboard', 'estoque', 'inspecao', 'wms']
 
 export function usePerfil(user: User | null) {
   const [perfil, setPerfil] = useState<Perfil | null>(null)

@@ -8,6 +8,7 @@ const ALL_TABS = [
   { key: 'estoque',    href: '/estoque',      label: 'Estoque' },
   { key: 'plano-acao', href: '/plano-acao',   label: 'Plano de Ação' },
   { key: 'inspecao',   href: '/inspecao',     label: 'Inspeção' },
+  { key: 'wms',        href: '/wms',          label: 'WMS' },
   { key: 'bloqueios',  href: '/bloqueios',    label: 'Bloqueios e Perdas' },
   { key: 'config',     href: '/config',       label: 'Configurações' },
 ]
