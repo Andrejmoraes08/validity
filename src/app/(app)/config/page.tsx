@@ -224,7 +224,7 @@ export default function ConfigPage() {
     const { data: { user } } = await supabase.auth.getUser()
 
     // Índices das colunas (0-based)
-    const iDataCriacao=2, iTipoMovto=4, iProxTarefa=5
+    const iTipoMovto=4, iProxTarefa=5
     const iRuaOrig=7, iPredOrig=8, iNivOrig=9, iAptoOrig=10
     const iRuaDest=13, iPredDest=14, iNivDest=15, iAptoDest=16
     const iIdProduto=19, iDescricao=20, iQtde=21
