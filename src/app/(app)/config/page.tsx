@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { useItens } from '@/hooks/useItens'
 import { usePerfis, TODAS_TABS, type Perfil } from '@/hooks/usePerfil'
 import { usePerfílContext } from '@/lib/perfil-context'
@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { supabase } from '@/lib/supabase'
 import { fmtDate } from '@/lib/utils'
-import type { Config } from '@/lib/types'
+import type { Config, Historico } from '@/lib/types'
 
 export default function ConfigPage() {
   const { itens, fetchItens } = useItens()
@@ -29,12 +29,26 @@ export default function ConfigPage() {
   const [wmsMovStatus, setWmsMovStatus] = useState<{ processados: number; entradas: number; saidas: number; movs: number; erros: number; ignorados: number } | null>(null)
   const [loadingWmsVal, setLoadingWmsVal] = useState(false)
   const [loadingWmsMov, setLoadingWmsMov] = useState(false)
+  const [historico, setHistorico] = useState<Historico[]>([])
+  const [loadingHist, setLoadingHist] = useState(false)
+
+  const fetchHistorico = useCallback(async () => {
+    setLoadingHist(true)
+    const { data } = await supabase
+      .from('historico')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(200)
+    if (data) setHistorico(data as Historico[])
+    setLoadingHist(false)
+  }, [])
 
   useEffect(() => {
     supabase.from('config').select('*').single().then(({ data }) => {
       if (data) setConfig(data as Config)
     })
-  }, [])
+    fetchHistorico()
+  }, [fetchHistorico])
 
   const saveConfig = async () => {
     setSaving(true)
@@ -305,6 +319,7 @@ export default function ConfigPage() {
     setWmsMovStatus({ processados, entradas, saidas, movs, erros, ignorados })
     setLoadingWmsMov(false)
     fetchItens()
+    fetchHistorico()
     if (movRef.current) movRef.current.value = ''
   }
 
@@ -564,6 +579,43 @@ export default function ConfigPage() {
         <Button variant="primary" onClick={saveConfig} disabled={saving}>
           {saving ? 'Salvando…' : 'Salvar Configurações'}
         </Button>
+      </div>
+
+      {/* Timeline */}
+      <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+          <div>
+            <h2 className="font-bold text-gray-800 text-sm">Timeline de Eventos</h2>
+            <p className="text-xs text-gray-400 mt-0.5">Histórico de todas as operações do sistema</p>
+          </div>
+          <button onClick={fetchHistorico} className="text-xs text-blue-500 hover:text-blue-700 font-semibold">
+            ↻ Atualizar
+          </button>
+        </div>
+        <div className="p-5 max-h-96 overflow-y-auto">
+          {loadingHist ? (
+            <div className="flex items-center justify-center h-16">
+              <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+            </div>
+          ) : historico.length === 0 ? (
+            <p className="text-center py-8 text-gray-400 text-sm">Nenhum evento registrado</p>
+          ) : (
+            <div className="flex flex-col">
+              {historico.map((h, i) => (
+                <div key={h.id} className="flex gap-3">
+                  <div className="flex flex-col items-center">
+                    <div className="w-2 h-2 rounded-full bg-blue-500 mt-1.5 flex-shrink-0" />
+                    {i < historico.length - 1 && <div className="w-px flex-1 bg-gray-100 mt-1" />}
+                  </div>
+                  <div className="flex-1 pb-3">
+                    <div className="text-xs text-gray-800">{h.descricao}</div>
+                    <div className="text-[11px] text-gray-400 mt-0.5">{h.responsavel} · {new Date(h.created_at).toLocaleString('pt-BR')}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Zona de perigo */}

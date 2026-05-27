@@ -7,14 +7,13 @@ import { Modal } from '@/components/ui/Modal'
 import { useToast } from '@/components/layout/Toast'
 import { supabase } from '@/lib/supabase'
 import { fmtDate, fmtDateTime } from '@/lib/utils'
-import type { Baixa, Historico, Item } from '@/lib/types'
+import type { Baixa, Item } from '@/lib/types'
 
 export default function BloqueiosPage() {
   const { itens, loading, baixarItem } = useItens()
   const { toast } = useToast()
-  const [tab, setTab] = useState<'bloqueados' | 'baixas' | 'historico'>('bloqueados')
+  const [tab, setTab] = useState<'bloqueados' | 'baixas'>('bloqueados')
   const [baixas, setBaixas] = useState<Baixa[]>([])
-  const [historico, setHistorico] = useState<Historico[]>([])
   const [baixaTarget, setBaixaTarget] = useState<Item | null>(null)
   const [nf, setNf] = useState('')
   const [responsavel, setResponsavel] = useState('')
@@ -23,12 +22,10 @@ export default function BloqueiosPage() {
 
   useEffect(() => {
     const load = async () => {
-      const [b, h] = await Promise.all([
+      const [b] = await Promise.all([
         supabase.from('baixas').select('*').order('created_at', { ascending: false }),
-        supabase.from('historico').select('*').order('created_at', { ascending: false }).limit(100),
       ])
       if (b.data) setBaixas(b.data as Baixa[])
-      if (h.data) setHistorico(h.data as Historico[])
     }
     load()
   }, [itens])
@@ -37,11 +34,7 @@ export default function BloqueiosPage() {
     if (!baixaTarget || !nf || !responsavel) return
     const { error } = await baixarItem(baixaTarget.id, nf, responsavel)
     if (error) toast('Erro ao registrar baixa', 'error')
-    else {
-      toast('Baixa registrada com sucesso')
-      const h = await supabase.from('historico').select('*').order('created_at', { ascending: false }).limit(100)
-      if (h.data) setHistorico(h.data as Historico[])
-    }
+    else toast('Baixa registrada com sucesso')
     setBaixaTarget(null)
     setNf('')
     setResponsavel('')
@@ -57,7 +50,7 @@ export default function BloqueiosPage() {
       </div>
 
       <div className="flex gap-2 border-b border-gray-200">
-        {([['bloqueados', `Bloqueados (${bloqueados.length})`], ['baixas', 'Histórico de Baixas'], ['historico', 'Timeline']] as const).map(([key, label]) => (
+        {([['bloqueados', `Bloqueados (${bloqueados.length})`], ['baixas', 'Histórico de Baixas']] as const).map(([key, label]) => (
           <button
             key={key}
             onClick={() => setTab(key)}
@@ -134,28 +127,6 @@ export default function BloqueiosPage() {
         </div>
       )}
 
-      {tab === 'historico' && (
-        <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
-          {historico.length === 0 ? (
-            <p className="text-center py-8 text-gray-400 text-sm">Nenhum evento registrado</p>
-          ) : (
-            <div className="flex flex-col gap-0">
-              {historico.map((h, i) => (
-                <div key={h.id} className="flex gap-4 pb-4">
-                  <div className="flex flex-col items-center">
-                    <div className="w-2.5 h-2.5 rounded-full bg-blue-500 mt-1 flex-shrink-0" />
-                    {i < historico.length - 1 && <div className="w-0.5 flex-1 bg-gray-100 mt-1" />}
-                  </div>
-                  <div className="flex-1 pb-4">
-                    <div className="text-sm text-gray-800">{h.descricao}</div>
-                    <div className="text-xs text-gray-400 mt-0.5">{h.responsavel} · {fmtDateTime(h.created_at)}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
 
       <Modal open={!!baixaTarget} onClose={() => setBaixaTarget(null)} title="Registrar Baixa com NF">
         <p className="text-sm text-gray-600 mb-4">
