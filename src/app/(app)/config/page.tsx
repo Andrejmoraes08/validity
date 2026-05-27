@@ -26,7 +26,7 @@ export default function ConfigPage() {
   const [editPerfil, setEditPerfil] = useState<Perfil | null>(null)
   const [savingPerfil, setSavingPerfil] = useState(false)
   const [wmsValStatus, setWmsValStatus] = useState<{ atualizados: number; criados: number; erros: number } | null>(null)
-  const [wmsMovStatus, setWmsMovStatus] = useState<{ processados: number; entradas: number; saidas: number; movs: number; erros: number } | null>(null)
+  const [wmsMovStatus, setWmsMovStatus] = useState<{ processados: number; entradas: number; saidas: number; movs: number; erros: number; ignorados: number } | null>(null)
   const [loadingWmsVal, setLoadingWmsVal] = useState(false)
   const [loadingWmsMov, setLoadingWmsMov] = useState(false)
 
@@ -227,7 +227,7 @@ export default function ConfigPage() {
     const iTipoMovto=4, iProxTarefa=5
     const iRuaOrig=7, iPredOrig=8, iNivOrig=9, iAptoOrig=10
     const iRuaDest=13, iPredDest=14, iNivDest=15, iAptoDest=16
-    const iIdProduto=19, iDescricao=20, iQtde=21
+    const iIdProduto=19, iQtde=21
 
     const ENTRADA = ['Recebimento', 'Retorno']
     const SAIDA = ['Separacao-Fracionado', 'Separacao-Grandeza']
@@ -237,7 +237,13 @@ export default function ConfigPage() {
       String(r[iProxTarefa]).toLowerCase() === 'concluido'
     )
 
-    let processados = 0, entradas = 0, saidas = 0, movs = 0, erros = 0
+    // Carrega todos os SKUs cadastrados no sistema (uma única consulta)
+    const { data: itensCadastrados } = await supabase
+      .from('itens')
+      .select('sku')
+    const skusCadastrados = new Set((itensCadastrados ?? []).map(i => String(i.sku)))
+
+    let processados = 0, entradas = 0, saidas = 0, movs = 0, erros = 0, ignorados = 0
 
     // Helper: busca item por SKU + endereço
     const findItem = async (sku: string, endereco: string) => {
@@ -250,54 +256,40 @@ export default function ConfigPage() {
       return data?.[0] ?? null
     }
 
-    // Helper: atualiza ou cria item em um endereço
+    // Helper: atualiza saldo de item existente (nunca cria novos)
     const upsertEndereco = async (
-      sku: string, descricao: string, endereco: string, delta: number, userId: string
+      sku: string, endereco: string, delta: number
     ) => {
       if (!endereco || endereco.startsWith('0 -')) return // Rua 0 = fictícia
       const item = await findItem(sku, endereco)
-      const nivelPart = endereco.split(' - ')[2] ?? '0'
-      const isPicking = nivelPart === '0'
-
       if (item) {
         const novaQtde = Math.max(0, (item.quantidade ?? 0) + delta)
         await supabase.from('itens').update({ quantidade: novaQtde }).eq('id', item.id)
-      } else if (delta > 0) {
-        // Cria novo item apenas para entradas
-        await supabase.from('itens').insert({
-          sku,
-          descricao: descricao || sku,
-          lote: 'S/L',
-          endereco_frac: isPicking ? endereco : '',
-          endereco_gran: isPicking ? '' : endereco,
-          quantidade: delta,
-          validade: '9999-12-31',
-          status: 'ativo',
-          user_id: userId,
-        })
       }
     }
 
     for (const r of concluidos) {
       const tipo = String(r[iTipoMovto] ?? '').trim()
       const sku = String(r[iIdProduto] ?? '').trim()
-      const desc = String(r[iDescricao] ?? '').trim()
       const qtde = Math.abs(Number(r[iQtde] ?? 0))
       const endOrig = fmtEnd(r[iRuaOrig], r[iPredOrig], r[iNivOrig], r[iAptoOrig])
       const endDest = fmtEnd(r[iRuaDest], r[iPredDest], r[iNivDest], r[iAptoDest])
 
       if (!sku || !qtde) continue
 
+      // Pula produtos não cadastrados no sistema
+      if (!skusCadastrados.has(sku)) { ignorados++; continue }
+
       try {
         if (ENTRADA.includes(tipo)) {
-          await upsertEndereco(sku, desc, endDest, +qtde, user!.id)
+          await upsertEndereco(sku, endDest, +qtde)
           entradas++
         } else if (SAIDA.includes(tipo)) {
-          await upsertEndereco(sku, desc, endOrig, -qtde, user!.id)
+          await upsertEndereco(sku, endOrig, -qtde)
           saidas++
         } else if (MOV.includes(tipo)) {
-          await upsertEndereco(sku, desc, endOrig, -qtde, user!.id)
-          await upsertEndereco(sku, desc, endDest, +qtde, user!.id)
+          await upsertEndereco(sku, endOrig, -qtde)
+          await upsertEndereco(sku, endDest, +qtde)
           movs++
         }
         processados++
@@ -305,12 +297,12 @@ export default function ConfigPage() {
     }
 
     await supabase.from('historico').insert({
-      descricao: `WMS Movimentações: ${processados} processadas — ${entradas} entradas, ${saidas} saídas, ${movs} movimentações, ${erros} erros`,
+      descricao: `WMS Movimentações: ${processados} processadas — ${entradas} entradas, ${saidas} saídas, ${movs} movimentações, ${ignorados} ignorados (SKU não cadastrado), ${erros} erros`,
       responsavel: user!.email ?? 'sistema',
       user_id: user!.id,
     })
 
-    setWmsMovStatus({ processados, entradas, saidas, movs, erros })
+    setWmsMovStatus({ processados, entradas, saidas, movs, erros, ignorados })
     setLoadingWmsMov(false)
     fetchItens()
     if (movRef.current) movRef.current.value = ''
@@ -535,6 +527,7 @@ export default function ConfigPage() {
                   <span className="bg-green-50 text-green-700 px-2 py-1 rounded font-semibold">↑ {wmsMovStatus.entradas} entradas</span>
                   <span className="bg-red-50 text-red-700 px-2 py-1 rounded font-semibold">↓ {wmsMovStatus.saidas} saídas</span>
                   <span className="bg-blue-50 text-blue-700 px-2 py-1 rounded font-semibold">⇄ {wmsMovStatus.movs} movs.</span>
+                  {wmsMovStatus.ignorados > 0 && <span className="bg-gray-50 text-gray-400 px-2 py-1 rounded font-semibold">⊘ {wmsMovStatus.ignorados} ignorados</span>}
                   {wmsMovStatus.erros > 0 && <span className="bg-red-100 text-red-700 px-2 py-1 rounded font-semibold">✕ {wmsMovStatus.erros} erros</span>}
                 </div>
               )}
