@@ -285,7 +285,6 @@ export default function ConfigPage() {
       const qtde = Math.abs(Number(r[iQtde] ?? 0))
       const endOrig = fmtEnd(r[iRuaOrig], r[iPredOrig], r[iNivOrig], r[iAptoOrig])
       const endDest = fmtEnd(r[iRuaDest], r[iPredDest], r[iNivDest], r[iAptoDest])
-      const dataStr = excelSerialToISO(r[iDataCriacao]) ?? ''
 
       if (!sku || !qtde) continue
 
