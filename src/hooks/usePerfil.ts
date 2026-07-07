@@ -21,7 +21,7 @@ export const TODAS_TABS = [
   { key: 'estoque',     label: 'Estoque' },
   { key: 'plano-acao',  label: 'Plano de Ação' },
   { key: 'inspecao',    label: 'Inspeção' },
-  { key: 'wms',         label: 'WMS' },
+  { key: 'wms',         label: 'Importação' },
   { key: 'bloqueios',   label: 'Bloqueios e Perdas' },
   { key: 'config',      label: 'Configurações' },
 ]

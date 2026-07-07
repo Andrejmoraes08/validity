@@ -99,5 +99,13 @@ export function useInspecao() {
 
   const reiniciar = () => setState(initial)
 
-  return { state, iniciar, confirmar, reiniciar }
+  const inserirNaFila = (entrada: EntradaFila) => {
+    setState(s => {
+      const pos = s.atual + 1
+      const novaFila = [...s.fila.slice(0, pos), entrada, ...s.fila.slice(pos)]
+      return { ...s, fila: novaFila }
+    })
+  }
+
+  return { state, iniciar, confirmar, reiniciar, inserirNaFila }
 }

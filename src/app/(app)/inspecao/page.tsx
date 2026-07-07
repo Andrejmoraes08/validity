@@ -4,9 +4,12 @@ import { useItens } from '@/hooks/useItens'
 import { useInspecao, type EntradaFila } from '@/hooks/useInspecao'
 import { ZoneCell } from '@/components/ui/ZoneCell'
 import { Button } from '@/components/ui/Button'
+import { Modal } from '@/components/ui/Modal'
 import { getZone, diasParaVencer } from '@/lib/zones'
 import { fmtDateTime } from '@/lib/utils'
-import type { ZoneName } from '@/lib/types'
+import { supabase } from '@/lib/supabase'
+import { useToast } from '@/components/layout/Toast'
+import type { Item, ZoneName } from '@/lib/types'
 
 const ZONAS: { name: ZoneName; label: string; color: string; bg: string }[] = [
   { name: 'vencido',  label: 'Vencido',       color: '#1a1d24', bg: 'rgba(26,29,36,.08)'   },
@@ -22,9 +25,15 @@ function extrairRua(endereco: string): string {
   return endereco.split('-')[0].trim()
 }
 
+const novoItemVazio = {
+  sku: '', descricao: '', lote: '', tipo: 'frac' as 'frac' | 'gran',
+  endereco: '', quantidade: '', validadeTexto: '', validadeISO: '',
+}
+
 export default function InspecaoPage() {
-  const { itens, loading } = useItens()
-  const { state, iniciar, confirmar, reiniciar } = useInspecao()
+  const { itens, loading, addItem } = useItens()
+  const { state, iniciar, confirmar, reiniciar, inserirNaFila } = useInspecao()
+  const { toast } = useToast()
   const [responsavel, setResponsavel] = useState('')
   const [validadeEncontrada, setValidadeEncontrada] = useState('') // ISO YYYY-MM-DD
   const [validadeTexto, setValidadeTexto] = useState('')           // exibição DD/MM/AAAA
@@ -34,6 +43,11 @@ export default function InspecaoPage() {
   const [showBloqueio, setShowBloqueio] = useState(false)
   const [qtdBloqueio, setQtdBloqueio] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
+
+  // Cadastrar novo endereço durante inspeção ativa
+  const [showAddModal, setShowAddModal] = useState(false)
+  const [novoItem, setNovoItem] = useState(novoItemVazio)
+  const [savingNovo, setSavingNovo] = useState(false)
 
   // Filtros da tela inicial
   const [ruasSelecionadas, setRuasSelecionadas] = useState<string[]>([])
@@ -132,6 +146,54 @@ export default function InspecaoPage() {
   const limparValidade = () => {
     setValidadeEncontrada('')
     setValidadeTexto('')
+  }
+
+  const handleNovoValidadeTexto = (raw: string) => {
+    const digits = raw.replace(/\D/g, '').slice(0, 8)
+    let masked = digits
+    if (digits.length > 2) masked = digits.slice(0, 2) + '/' + digits.slice(2)
+    if (digits.length > 4) masked = masked.slice(0, 5) + '/' + digits.slice(4)
+    let iso = ''
+    if (digits.length === 8) {
+      const d = digits.slice(0, 2), m = digits.slice(2, 4), y = digits.slice(4, 8)
+      const date = new Date(`${y}-${m}-${d}`)
+      if (!isNaN(date.getTime())) iso = `${y}-${m}-${d}`
+    }
+    setNovoItem(p => ({ ...p, validadeTexto: masked, validadeISO: iso }))
+  }
+
+  const handleSalvarNovoEndereco = async () => {
+    const { sku, descricao, lote, tipo, endereco, quantidade, validadeISO } = novoItem
+    if (!sku || !descricao || !lote || !endereco || !validadeISO) return
+    setSavingNovo(true)
+    const { error } = await addItem({
+      sku, descricao, lote,
+      endereco_frac: tipo === 'frac' ? endereco : '',
+      endereco_gran: tipo === 'gran' ? endereco : '',
+      quantidade: Number(quantidade) || 0,
+      validade: validadeISO,
+      status: 'ativo',
+    })
+    if (error) {
+      toast('Erro ao cadastrar endereço', 'error')
+      setSavingNovo(false)
+      return
+    }
+    // Busca o item recém-criado para adicionar à fila de inspeção
+    const { data: novo } = await supabase
+      .from('itens').select('*')
+      .eq('sku', sku)
+      .eq(tipo === 'frac' ? 'endereco_frac' : 'endereco_gran', endereco)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    if (novo) {
+      inserirNaFila({ item: novo as Item, tipo, endereco })
+      toast(`Endereço ${endereco} adicionado à inspeção`)
+    }
+    setShowAddModal(false)
+    setNovoItem(novoItemVazio)
+    setSavingNovo(false)
   }
 
   const handleIniciar = () => {
@@ -404,11 +466,19 @@ export default function InspecaoPage() {
           <h1 className="text-xl font-extrabold text-gray-900">Inspeção Ativa</h1>
           <p className="text-sm text-gray-400">Item {state.atual + 1} de {state.fila.length} — {state.responsavel}</p>
         </div>
-        <div className="text-right">
-          <div className="text-xs text-gray-400">{Math.round((state.atual / state.fila.length) * 100)}% concluído</div>
-          <div className="w-32 bg-gray-200 rounded-full h-1.5 mt-1">
-            <div className="bg-blue-600 h-1.5 rounded-full transition-all" style={{ width: `${(state.atual / state.fila.length) * 100}%` }} />
+        <div className="flex items-center gap-3">
+          <div className="text-right">
+            <div className="text-xs text-gray-400">{Math.round((state.atual / state.fila.length) * 100)}% concluído</div>
+            <div className="w-28 bg-gray-200 rounded-full h-1.5 mt-1">
+              <div className="bg-blue-600 h-1.5 rounded-full transition-all" style={{ width: `${(state.atual / state.fila.length) * 100}%` }} />
+            </div>
           </div>
+          <button
+            onClick={() => setShowAddModal(true)}
+            className="flex items-center gap-1 text-xs font-semibold text-blue-600 border border-blue-200 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg transition-colors"
+          >
+            + Endereço
+          </button>
         </div>
       </div>
 
@@ -640,6 +710,90 @@ export default function InspecaoPage() {
           </>
         )}
       </div>
+      {/* Modal — cadastrar novo endereço durante inspeção */}
+      <Modal open={showAddModal} onClose={() => { setShowAddModal(false); setNovoItem(novoItemVazio) }} title="Cadastrar Novo Endereço">
+        <div className="flex flex-col gap-4">
+          <p className="text-xs text-gray-500">O endereço será criado no estoque e inserido na próxima posição da fila de inspeção.</p>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-semibold text-gray-600">SKU *</label>
+              <input type="text" value={novoItem.sku}
+                onChange={e => setNovoItem(p => ({ ...p, sku: e.target.value }))}
+                placeholder="Código SKU"
+                className="border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-blue-500" />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-semibold text-gray-600">Lote *</label>
+              <input type="text" value={novoItem.lote}
+                onChange={e => setNovoItem(p => ({ ...p, lote: e.target.value }))}
+                placeholder="Número do lote"
+                className="border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-blue-500" />
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-semibold text-gray-600">Descrição *</label>
+            <input type="text" value={novoItem.descricao}
+              onChange={e => setNovoItem(p => ({ ...p, descricao: e.target.value }))}
+              placeholder="Nome do produto"
+              className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <label className="text-xs font-semibold text-gray-600">Tipo de endereço *</label>
+            <div className="flex gap-2">
+              {(['frac', 'gran'] as const).map(t => (
+                <button key={t}
+                  onClick={() => setNovoItem(p => ({ ...p, tipo: t }))}
+                  className="flex-1 py-2 rounded-lg text-sm font-semibold border transition-colors"
+                  style={novoItem.tipo === t
+                    ? { background: '#1f6feb', color: '#fff', borderColor: '#1f6feb' }
+                    : { background: '#f5f6f8', color: '#5a6070', borderColor: '#e1e4ea' }}>
+                  {t === 'frac' ? 'Fracionado' : 'Grandeza'}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-semibold text-gray-600">Endereço * <span className="text-gray-400 font-normal">(ex: 1 - 2 - 0 - 1)</span></label>
+            <input type="text" value={novoItem.endereco}
+              onChange={e => setNovoItem(p => ({ ...p, endereco: e.target.value }))}
+              placeholder="Rua - Prédio - Nível - Apto"
+              className="border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-blue-500" />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-semibold text-gray-600">Quantidade</label>
+              <input type="number" min={0} value={novoItem.quantidade}
+                onChange={e => setNovoItem(p => ({ ...p, quantidade: e.target.value }))}
+                placeholder="0"
+                className="border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-blue-500" />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-semibold text-gray-600">Validade *</label>
+              <input type="text" inputMode="numeric" value={novoItem.validadeTexto}
+                onChange={e => handleNovoValidadeTexto(e.target.value)}
+                placeholder="DD/MM/AAAA"
+                maxLength={10}
+                className="border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-blue-500" />
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-3 pt-2">
+            <Button variant="ghost" onClick={() => { setShowAddModal(false); setNovoItem(novoItemVazio) }}>Cancelar</Button>
+            <Button
+              variant="primary"
+              onClick={handleSalvarNovoEndereco}
+              disabled={savingNovo || !novoItem.sku || !novoItem.descricao || !novoItem.lote || !novoItem.endereco || !novoItem.validadeISO}
+            >
+              {savingNovo ? 'Salvando…' : 'Cadastrar e inspecionar'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   )
 }
