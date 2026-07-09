@@ -51,7 +51,7 @@ export default function WmsPage() {
       const apto = String(r['Apartamento'] ?? '').trim()
       const qtdeRaw = Number(r['Qtde'] ?? 0)
       const quantidade = qtdeRaw < 0 ? 0 : qtdeRaw
-      const validade = excelSerialToISO(r['ValidadeNova']) ?? '9999-12-31'
+      const validade = excelSerialToISO(r['validade'] ?? r['ValidadeNova']) ?? '9999-12-31'
       const endereco = fmtEnd(rua, predio, nivel, apto)
       const isPicking = nivel === '0'
 
