@@ -167,9 +167,19 @@ export default function InspecaoPage() {
     setNovoItem(p => ({ ...p, validadeTexto: masked, validadeISO: iso }))
   }
 
+  // Produto já cadastrado com o mesmo SKU — usado para autopreencher a descrição
+  const produtoExistente = useMemo(() => {
+    const sku = novoItem.sku.trim()
+    if (!sku) return null
+    return itens.find(i => i.sku === sku) ?? null
+  }, [itens, novoItem.sku])
+
   // Popup mínimo confirmado → segue para inspeção complementar
   const handleContinuarNovo = () => {
     if (!novoItem.sku || !novoItem.endereco) return
+    if (produtoExistente) {
+      setNovoItem(p => ({ ...p, descricao: produtoExistente.descricao }))
+    }
     setShowAddModal(false)
     setFaseComplemento(true)
   }
@@ -863,6 +873,11 @@ export default function InspecaoPage() {
               onChange={e => setNovoItem(p => ({ ...p, sku: e.target.value }))}
               placeholder="Código SKU"
               className="border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-blue-500" />
+            {novoItem.sku.trim() && (
+              produtoExistente
+                ? <p className="text-[11px] text-green-600 font-medium">✓ {produtoExistente.descricao}</p>
+                : <p className="text-[11px] text-amber-600">Produto sem cadastro — informe a descrição na próxima tela</p>
+            )}
           </div>
 
           <div className="flex flex-col gap-2">
