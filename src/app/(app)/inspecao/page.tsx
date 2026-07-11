@@ -193,11 +193,11 @@ export default function InspecaoPage() {
   // Inspeção complementar confirmada → cria o item já inspecionado
   const handleConfirmarComplemento = async () => {
     const { sku, descricao, lote, tipo, endereco, quantidade, validadeISO } = novoItem
-    if (!descricao || !lote || !validadeISO) return
+    if (!descricao || !validadeISO) return
     setSavingNovo(true)
     const now = new Date().toISOString()
     const { error } = await addItem({
-      sku, descricao, lote,
+      sku, descricao, lote: lote.trim() || 'S/L',
       endereco_frac: tipo === 'frac' ? endereco : '',
       endereco_gran: tipo === 'gran' ? endereco : '',
       quantidade: Number(quantidade) || 0,
@@ -526,10 +526,10 @@ export default function InspecaoPage() {
 
         <div className="grid grid-cols-2 gap-3">
           <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold text-gray-600">Lote *</label>
+            <label className="text-xs font-semibold text-gray-600">Lote <span className="text-gray-400 font-normal">(opcional)</span></label>
             <input type="text" value={novoItem.lote}
               onChange={e => setNovoItem(p => ({ ...p, lote: e.target.value }))}
-              placeholder="Número do lote"
+              placeholder="S/L se não informado"
               className="border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-blue-500" />
           </div>
           <div className="flex flex-col gap-1">
@@ -566,7 +566,7 @@ export default function InspecaoPage() {
           <Button
             variant="primary"
             onClick={handleConfirmarComplemento}
-            disabled={savingNovo || !novoItem.descricao || !novoItem.lote || !novoItem.validadeISO}
+            disabled={savingNovo || !novoItem.descricao || !novoItem.validadeISO}
             className="justify-center py-3"
           >
             {savingNovo ? 'Salvando…' : 'Confirmar inspeção'}

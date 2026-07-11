@@ -56,9 +56,9 @@ export function ItemForm({ open, onClose, onSave, initial, title }: ItemFormProp
   }
 
   const handleSave = async () => {
-    if (!form.sku || !form.descricao || !form.lote || !form.endereco_frac || !form.validade) return
+    if (!form.sku || !form.descricao || !form.endereco_frac || !form.validade) return
     setSaving(true)
-    await onSave(form)
+    await onSave({ ...form, lote: (form.lote ?? '').trim() || 'S/L' })
     setSaving(false)
     onClose()
   }
@@ -71,8 +71,8 @@ export function ItemForm({ open, onClose, onSave, initial, title }: ItemFormProp
           <input type="text" value={form.sku ?? ''} onChange={set('sku')} className={inputClass} />
         </div>
         <div className="flex flex-col gap-1">
-          <label className={labelClass}>Lote <span className="text-red-500">*</span></label>
-          <input type="text" value={form.lote ?? ''} onChange={set('lote')} className={inputClass} />
+          <label className={labelClass}>Lote <span className="text-gray-400 font-normal">(opcional)</span></label>
+          <input type="text" value={form.lote ?? ''} onChange={set('lote')} placeholder="S/L se não informado" className={inputClass} />
         </div>
         <div className="col-span-2 flex flex-col gap-1">
           <label className={labelClass}>Descrição <span className="text-red-500">*</span></label>
