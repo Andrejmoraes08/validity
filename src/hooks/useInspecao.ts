@@ -48,7 +48,7 @@ export function useInspecao() {
     validadeEncontrada: string,
     obs: string,
     foto?: string,
-    quantidadeBloqueada?: number,
+    quantidadeSegregada?: number,
   ) => {
     const entrada = state.fila[state.atual]
     const { item, tipo } = entrada
@@ -65,8 +65,8 @@ export function useInspecao() {
         inspecionado_por: state.responsavel,
         observacao_inspecao: obs || null,
         ...(validadeAlterada ? { validade: validadeEncontrada } : {}),
-        status: ok ? 'ativo' : 'bloqueado',
-        ...(ok ? {} : { bloqueado_em: now, bloqueado_por: state.responsavel }),
+        status: ok ? 'ativo' : 'segregado',
+        ...(ok ? {} : { segregado_em: now, segregado_por: state.responsavel }),
       }).eq('id', item.id)
     } else {
       if (obs || validadeAlterada) {
@@ -78,10 +78,10 @@ export function useInspecao() {
     }
 
     const endLabel = tipo === 'frac' ? 'Frac.' : 'Gran.'
-    const qtdInfo = !ok && quantidadeBloqueada ? ` | Qtd: ${quantidadeBloqueada}` : ''
+    const qtdInfo = !ok && quantidadeSegregada ? ` | Qtd: ${quantidadeSegregada}` : ''
     const descricao = validadeAlterada
-      ? `Inspeção ${endLabel}: ${item.sku} — validade corrigida ${item.validade} → ${validadeEncontrada}${ok ? '' : ` | Bloqueado${qtdInfo}`}`
-      : `Inspeção ${endLabel}: ${item.sku} — ${ok ? 'OK' : `Bloqueado${qtdInfo}`}`
+      ? `Inspeção ${endLabel}: ${item.sku} — validade corrigida ${item.validade} → ${validadeEncontrada}${ok ? '' : ` | Segregado${qtdInfo}`}`
+      : `Inspeção ${endLabel}: ${item.sku} — ${ok ? 'OK' : `Segregado${qtdInfo}`}`
 
     await supabase.from('historico').insert({
       descricao,
@@ -99,13 +99,9 @@ export function useInspecao() {
 
   const reiniciar = () => setState(initial)
 
-  const inserirNaFila = (entrada: EntradaFila) => {
-    setState(s => {
-      const pos = s.atual + 1
-      const novaFila = [...s.fila.slice(0, pos), entrada, ...s.fila.slice(pos)]
-      return { ...s, fila: novaFila }
-    })
+  const registrarExtra = (resultado: Resultado) => {
+    setState(s => ({ ...s, resultados: [...s.resultados, resultado] }))
   }
 
-  return { state, iniciar, confirmar, reiniciar, inserirNaFila }
+  return { state, iniciar, confirmar, reiniciar, registrarExtra }
 }

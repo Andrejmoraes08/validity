@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { useToast } from '@/components/layout/Toast'
 import { diasParaVencer, getZone } from '@/lib/zones'
-import { fmtDate } from '@/lib/utils'
+import { fmtDate, fmtDateTime } from '@/lib/utils'
 import type { Item } from '@/lib/types'
 
 export default function PlanoAcaoPage() {
@@ -16,6 +16,12 @@ export default function PlanoAcaoPage() {
   const [responsavel, setResponsavel] = useState('')
 
   const ativos = useMemo(() => itens.filter(i => i.status === 'ativo'), [itens])
+
+  const segregados = useMemo(() =>
+    itens.filter(i => i.status === 'segregado')
+      .sort((a, b) => diasParaVencer(a.validade) - diasParaVencer(b.validade)),
+    [itens]
+  )
 
   const amarelos = useMemo(() =>
     ativos.filter(i => { const d = diasParaVencer(i.validade); return d >= 30 && d < 91 })
@@ -160,6 +166,49 @@ export default function PlanoAcaoPage() {
       <div>
         <h1 className="text-xl font-extrabold text-gray-900">Plano de Ação</h1>
         <p className="text-sm text-gray-400">Itens que requerem atenção imediata ou monitoramento</p>
+      </div>
+
+      {/* Segregados — aguardando confirmação de bloqueio */}
+      <div className="bg-white rounded-xl border border-orange-100 shadow-sm overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 bg-orange-50 border-b border-orange-100">
+          <div className="flex items-center gap-3">
+            <div className="w-3 h-3 rounded-full bg-orange-500" />
+            <h2 className="font-bold text-orange-700">Segregados na Inspeção — aguardando confirmação de bloqueio</h2>
+            <span className="bg-orange-500 text-white text-[11px] font-bold px-2 py-0.5 rounded-full">{segregados.length}</span>
+          </div>
+        </div>
+        <div className="overflow-x-auto">
+          {segregados.length === 0 ? (
+            <p className="text-center py-8 text-sm text-gray-400">Nenhum item segregado</p>
+          ) : (
+            <table className="w-full text-xs">
+              <thead className="bg-gray-50 border-b border-gray-100">
+                <tr>
+                  {['SKU', 'Descrição', 'Lote', 'Endereço', 'Qtd', 'Validade', 'Segregado por', 'Em', 'Ação'].map(h => (
+                    <th key={h} className="px-4 py-3 text-left text-gray-500 font-semibold text-[11px] uppercase tracking-wide">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {segregados.map(item => (
+                  <tr key={item.id} className="border-b border-gray-50 hover:bg-gray-50">
+                    <td className="px-4 py-3 font-mono font-bold text-gray-800">{item.sku}</td>
+                    <td className="px-4 py-3 text-gray-700 max-w-[160px] truncate">{item.descricao}</td>
+                    <td className="px-4 py-3 font-mono text-gray-500">{item.lote}</td>
+                    <td className="px-4 py-3 font-mono text-gray-600">{item.endereco_frac || item.endereco_gran}</td>
+                    <td className="px-4 py-3 font-mono font-bold">{item.quantidade}</td>
+                    <td className="px-4 py-3"><ZoneCell validade={item.validade} /></td>
+                    <td className="px-4 py-3 text-gray-500">{item.segregado_por || '—'}</td>
+                    <td className="px-4 py-3 text-gray-500">{item.segregado_em ? fmtDateTime(item.segregado_em) : '—'}</td>
+                    <td className="px-4 py-3">
+                      <Button size="sm" variant="danger" onClick={() => setBloqueioTarget(item)}>Confirmar Bloqueio</Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
       </div>
 
       {/* Zona Vermelha */}

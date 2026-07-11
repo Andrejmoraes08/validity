@@ -10,7 +10,7 @@ import { useToast } from '@/components/layout/Toast'
 import { getZone } from '@/lib/zones'
 import type { Item } from '@/lib/types'
 
-type StatusFilter = 'todos' | 'ativo' | 'bloqueado' | 'baixado'
+type StatusFilter = 'todos' | 'ativo' | 'segregado' | 'bloqueado' | 'baixado'
 
 export default function EstoquePage() {
   const { itens, loading, addItem, updateItem, deleteItem } = useItens()
@@ -84,6 +84,7 @@ export default function EstoquePage() {
 
   const statusColors: Record<string, string> = {
     ativo: 'bg-green-100 text-green-700',
+    segregado: 'bg-orange-100 text-orange-700',
     bloqueado: 'bg-red-100 text-red-700',
     baixado: 'bg-gray-100 text-gray-500',
   }
@@ -116,6 +117,7 @@ export default function EstoquePage() {
         >
           <option value="todos">Todos os status</option>
           <option value="ativo">Ativo</option>
+          <option value="segregado">Segregado</option>
           <option value="bloqueado">Bloqueado</option>
           <option value="baixado">Baixado</option>
         </select>

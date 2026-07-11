@@ -32,7 +32,7 @@ const novoItemVazio = {
 
 export default function InspecaoPage() {
   const { itens, loading, addItem } = useItens()
-  const { state, iniciar, confirmar, reiniciar, inserirNaFila } = useInspecao()
+  const { state, iniciar, confirmar, reiniciar, registrarExtra } = useInspecao()
   const { toast } = useToast()
   const [responsavel, setResponsavel] = useState('')
   const [validadeEncontrada, setValidadeEncontrada] = useState('') // ISO YYYY-MM-DD
@@ -40,13 +40,16 @@ export default function InspecaoPage() {
   const [obs, setObs] = useState('')
   const [foto, setFoto] = useState<string | undefined>()
   const [processing, setProcessing] = useState(false)
-  const [showBloqueio, setShowBloqueio] = useState(false)
-  const [qtdBloqueio, setQtdBloqueio] = useState('')
+  const [showSegregar, setShowSegregar] = useState(false)
+  const [qtdSegregar, setQtdSegregar] = useState('')
+  const [validadeConfirmada, setValidadeConfirmada] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
-  // Cadastrar novo endereço durante inspeção ativa
+  // Novo endereço durante inspeção ativa: popup mínimo → inspeção complementar
   const [showAddModal, setShowAddModal] = useState(false)
+  const [faseComplemento, setFaseComplemento] = useState(false)
   const [novoItem, setNovoItem] = useState(novoItemVazio)
+  const [complObs, setComplObs] = useState('')
   const [savingNovo, setSavingNovo] = useState(false)
 
   // Filtros da tela inicial
@@ -125,6 +128,7 @@ export default function InspecaoPage() {
     if (digits.length > 2) masked = digits.slice(0, 2) + '/' + digits.slice(2)
     if (digits.length > 4) masked = masked.slice(0, 5) + '/' + digits.slice(4)
     setValidadeTexto(masked)
+    setValidadeConfirmada(false)
 
     // Converte para ISO quando a data estiver completa (8 dígitos)
     if (digits.length === 8) {
@@ -146,6 +150,7 @@ export default function InspecaoPage() {
   const limparValidade = () => {
     setValidadeEncontrada('')
     setValidadeTexto('')
+    setValidadeConfirmada(false)
   }
 
   const handleNovoValidadeTexto = (raw: string) => {
@@ -162,10 +167,25 @@ export default function InspecaoPage() {
     setNovoItem(p => ({ ...p, validadeTexto: masked, validadeISO: iso }))
   }
 
-  const handleSalvarNovoEndereco = async () => {
+  // Popup mínimo confirmado → segue para inspeção complementar
+  const handleContinuarNovo = () => {
+    if (!novoItem.sku || !novoItem.endereco) return
+    setShowAddModal(false)
+    setFaseComplemento(true)
+  }
+
+  const cancelarComplemento = () => {
+    setFaseComplemento(false)
+    setNovoItem(novoItemVazio)
+    setComplObs('')
+  }
+
+  // Inspeção complementar confirmada → cria o item já inspecionado
+  const handleConfirmarComplemento = async () => {
     const { sku, descricao, lote, tipo, endereco, quantidade, validadeISO } = novoItem
-    if (!sku || !descricao || !lote || !endereco || !validadeISO) return
+    if (!descricao || !lote || !validadeISO) return
     setSavingNovo(true)
+    const now = new Date().toISOString()
     const { error } = await addItem({
       sku, descricao, lote,
       endereco_frac: tipo === 'frac' ? endereco : '',
@@ -173,13 +193,15 @@ export default function InspecaoPage() {
       quantidade: Number(quantidade) || 0,
       validade: validadeISO,
       status: 'ativo',
+      ultima_inspecao: now,
+      inspecionado_por: state.responsavel,
+      observacao_inspecao: complObs || undefined,
     })
     if (error) {
       toast('Erro ao cadastrar endereço', 'error')
       setSavingNovo(false)
       return
     }
-    // Busca o item recém-criado para adicionar à fila de inspeção
     const { data: novo } = await supabase
       .from('itens').select('*')
       .eq('sku', sku)
@@ -187,12 +209,23 @@ export default function InspecaoPage() {
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle()
+    const { data: { user } } = await supabase.auth.getUser()
+    await supabase.from('historico').insert({
+      descricao: `Inspeção complementar: ${sku} — endereço ${endereco} localizado fora do programado`,
+      responsavel: state.responsavel,
+      user_id: user!.id,
+    })
     if (novo) {
-      inserirNaFila({ item: novo as Item, tipo, endereco })
-      toast(`Endereço ${endereco} adicionado à inspeção`)
+      registrarExtra({
+        entrada: { item: novo as Item, tipo, endereco },
+        ok: true,
+        validadeEncontrada: validadeISO,
+        validadeAlterada: false,
+        obs: complObs,
+      })
     }
-    setShowAddModal(false)
-    setNovoItem(novoItemVazio)
+    toast(`Endereço ${endereco} inspecionado e cadastrado`)
+    cancelarComplemento()
     setSavingNovo(false)
   }
 
@@ -213,10 +246,11 @@ export default function InspecaoPage() {
   const limparEstado = () => {
     setValidadeEncontrada('')
     setValidadeTexto('')
+    setValidadeConfirmada(false)
     setObs('')
     setFoto(undefined)
-    setShowBloqueio(false)
-    setQtdBloqueio('')
+    setShowSegregar(false)
+    setQtdSegregar('')
   }
 
   const handleConfirmarOk = async () => {
@@ -227,11 +261,11 @@ export default function InspecaoPage() {
     setProcessing(false)
   }
 
-  const handleConfirmarBloqueio = async () => {
+  const handleConfirmarSegregacao = async () => {
     if (fotoObrigatoria && !foto) return
-    if (!qtdBloqueio) return
+    if (!qtdSegregar) return
     setProcessing(true)
-    await confirmar(false, validadeEfetiva, obs, foto, Number(qtdBloqueio))
+    await confirmar(false, validadeEfetiva, obs, foto, Number(qtdSegregar))
     limparEstado()
     setProcessing(false)
   }
@@ -397,9 +431,9 @@ export default function InspecaoPage() {
             <div className="text-2xl font-extrabold font-mono text-green-700">{state.resultados.filter(r => r.ok).length}</div>
             <div className="text-xs text-green-600 mt-1">Aprovados</div>
           </div>
-          <div className="bg-red-50 rounded-lg p-4">
-            <div className="text-2xl font-extrabold font-mono text-red-700">{state.resultados.filter(r => !r.ok).length}</div>
-            <div className="text-xs text-red-600 mt-1">Bloqueados</div>
+          <div className="bg-orange-50 rounded-lg p-4">
+            <div className="text-2xl font-extrabold font-mono text-orange-700">{state.resultados.filter(r => !r.ok).length}</div>
+            <div className="text-xs text-orange-600 mt-1">Segregados</div>
           </div>
         </div>
         <Button variant="primary" onClick={reiniciar} className="mt-6 w-full justify-center">
@@ -440,14 +474,94 @@ export default function InspecaoPage() {
                   }
                 </td>
                 <td className="px-4 py-3">
-                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${r.ok ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                    {r.ok ? 'OK' : 'Bloqueado'}
+                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${r.ok ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'}`}>
+                    {r.ok ? 'OK' : 'Segregado'}
                   </span>
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
+      </div>
+    </div>
+  )
+
+  // ── INSPEÇÃO COMPLEMENTAR (endereço fora do programado) ──────
+  if (faseComplemento) return (
+    <div className="max-w-lg mx-auto flex flex-col gap-4">
+      <div>
+        <h1 className="text-xl font-extrabold text-gray-900">Inspeção Complementar</h1>
+        <p className="text-sm text-gray-400">Endereço localizado fora do programado — complete as informações</p>
+      </div>
+
+      <div className="bg-white rounded-xl border border-blue-200 shadow-sm p-6 flex flex-col gap-4">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-[11px] font-bold uppercase tracking-wide px-2 py-0.5 rounded"
+            style={novoItem.tipo === 'frac'
+              ? { background: '#eff6ff', color: '#1d4ed8' }
+              : { background: '#faf5ff', color: '#7e22ce' }}>
+            End. {novoItem.tipo === 'frac' ? 'Fracionado' : 'Grandeza'}
+          </span>
+          <span className="font-mono text-sm font-bold text-gray-800">{novoItem.endereco}</span>
+          <span className="ml-auto font-mono text-lg font-extrabold text-gray-900">{novoItem.sku}</span>
+        </div>
+
+        <div className="flex flex-col gap-1">
+          <label className="text-xs font-semibold text-gray-600">Descrição do produto *</label>
+          <input type="text" value={novoItem.descricao}
+            onChange={e => setNovoItem(p => ({ ...p, descricao: e.target.value }))}
+            placeholder="Nome do produto localizado"
+            className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-semibold text-gray-600">Lote *</label>
+            <input type="text" value={novoItem.lote}
+              onChange={e => setNovoItem(p => ({ ...p, lote: e.target.value }))}
+              placeholder="Número do lote"
+              className="border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-blue-500" />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-semibold text-gray-600">Quantidade</label>
+            <input type="number" min={0} value={novoItem.quantidade}
+              onChange={e => setNovoItem(p => ({ ...p, quantidade: e.target.value }))}
+              placeholder="0"
+              className="border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-blue-500" />
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-1">
+          <label className="text-xs font-semibold text-gray-600">Validade encontrada *</label>
+          <input type="text" inputMode="numeric" value={novoItem.validadeTexto}
+            onChange={e => handleNovoValidadeTexto(e.target.value)}
+            placeholder="DD/MM/AAAA"
+            maxLength={10}
+            className="border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-blue-500" />
+        </div>
+
+        <div className="flex flex-col gap-1">
+          <label className="text-xs font-semibold text-gray-400">Observação (opcional)</label>
+          <textarea value={complObs}
+            onChange={e => setComplObs(e.target.value)}
+            rows={2}
+            placeholder="Ex: produto encontrado sem registro no sistema…"
+            className="border border-gray-200 rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:border-gray-300 text-gray-600" />
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 mt-2">
+          <Button variant="ghost" onClick={cancelarComplemento} disabled={savingNovo} className="justify-center py-3">
+            Cancelar
+          </Button>
+          <Button
+            variant="primary"
+            onClick={handleConfirmarComplemento}
+            disabled={savingNovo || !novoItem.descricao || !novoItem.lote || !novoItem.validadeISO}
+            className="justify-center py-3"
+          >
+            {savingNovo ? 'Salvando…' : 'Confirmar inspeção'}
+          </Button>
+        </div>
       </div>
     </div>
   )
@@ -605,6 +719,16 @@ export default function InspecaoPage() {
                   ⚠ Validade será atualizada no sistema ao confirmar
                 </p>
               )}
+              <button
+                onClick={() => setValidadeConfirmada(true)}
+                disabled={validadeConfirmada}
+                className="mt-1 py-2 rounded-lg text-sm font-bold border transition-colors"
+                style={validadeConfirmada
+                  ? { background: '#f0fdf4', color: '#16a34a', borderColor: '#bbf7d0', cursor: 'default' }
+                  : { background: '#1f6feb', color: '#fff', borderColor: '#1f6feb' }}
+              >
+                {validadeConfirmada ? '✓ Validade confirmada' : 'Confirmar validade'}
+              </button>
             </div>
 
             {/* Foto */}
@@ -649,95 +773,96 @@ export default function InspecaoPage() {
               />
             </div>
 
-            {/* Formulário de bloqueio inline */}
-            {showBloqueio && (
-              <div className="flex flex-col gap-3 rounded-xl border border-red-200 bg-red-50 p-4">
-                <p className="text-xs font-semibold text-red-700">Informe a quantidade a bloquear</p>
+            {/* Formulário de segregação inline */}
+            {showSegregar && (
+              <div className="flex flex-col gap-3 rounded-xl border border-orange-200 bg-orange-50 p-4">
+                <p className="text-xs font-semibold text-orange-700">Informe a quantidade a segregar</p>
+                <p className="text-[11px] text-orange-600">O item ficará como <strong>Segregado</strong> — o bloqueio é confirmado no Plano de Ação</p>
                 <div className="flex items-center gap-2">
                   <input
                     type="number"
                     min={1}
                     max={itemAtual.quantidade}
-                    value={qtdBloqueio}
-                    onChange={e => setQtdBloqueio(e.target.value)}
+                    value={qtdSegregar}
+                    onChange={e => setQtdSegregar(e.target.value)}
                     placeholder={`Máx: ${itemAtual.quantidade}`}
-                    className="border border-red-200 rounded-lg px-3 py-2 text-sm font-mono flex-1 focus:outline-none focus:border-red-400 bg-white"
+                    className="border border-orange-200 rounded-lg px-3 py-2 text-sm font-mono flex-1 focus:outline-none focus:border-orange-400 bg-white"
                     autoFocus
                   />
-                  <span className="text-xs text-red-400 font-mono">/ {itemAtual.quantidade}</span>
+                  <span className="text-xs text-orange-400 font-mono">/ {itemAtual.quantidade}</span>
                 </div>
                 {fotoObrigatoria && !foto && (
                   <p className="text-[11px] text-red-600 font-medium">⚠ Foto obrigatória — validade alterada para zona crítica</p>
                 )}
                 <div className="grid grid-cols-2 gap-2">
-                  <Button variant="ghost" size="sm" onClick={() => { setShowBloqueio(false); setQtdBloqueio('') }} className="justify-center">
+                  <Button variant="ghost" size="sm" onClick={() => { setShowSegregar(false); setQtdSegregar('') }} className="justify-center">
                     Cancelar
                   </Button>
                   <Button
                     variant="danger"
                     size="sm"
-                    onClick={handleConfirmarBloqueio}
-                    disabled={processing || !qtdBloqueio || Number(qtdBloqueio) < 1 || (!!fotoObrigatoria && !foto)}
+                    onClick={handleConfirmarSegregacao}
+                    disabled={processing || !qtdSegregar || Number(qtdSegregar) < 1 || (!!fotoObrigatoria && !foto)}
                     className="justify-center"
                   >
-                    {processing ? 'Salvando…' : 'Confirmar Bloqueio'}
+                    {processing ? 'Salvando…' : 'Confirmar Segregação'}
                   </Button>
                 </div>
               </div>
             )}
 
             {/* Botões principais */}
-            {!showBloqueio && (
-              <div className="grid grid-cols-2 gap-3 mt-2">
-                <Button
-                  variant="danger"
-                  onClick={() => setShowBloqueio(true)}
-                  disabled={processing}
-                  className="justify-center py-3"
-                >
-                  Bloquear
-                </Button>
-                <Button
-                  variant="primary"
-                  onClick={handleConfirmarOk}
-                  disabled={processing || (!!fotoObrigatoria && !foto)}
-                  className="justify-center py-3"
-                >
-                  {processing ? 'Salvando…' : 'Confirmar OK'}
-                </Button>
+            {!showSegregar && (
+              <div className="flex flex-col gap-2 mt-2">
+                <div className="grid grid-cols-2 gap-3">
+                  <Button
+                    variant="danger"
+                    onClick={() => setShowSegregar(true)}
+                    disabled={processing || !validadeConfirmada}
+                    className="justify-center py-3"
+                  >
+                    Segregar
+                  </Button>
+                  <Button
+                    variant="primary"
+                    onClick={handleConfirmarOk}
+                    disabled={processing || !validadeConfirmada || (!!fotoObrigatoria && !foto)}
+                    className="justify-center py-3"
+                  >
+                    {processing ? 'Salvando…' : 'Confirmar OK'}
+                  </Button>
+                </div>
+                {!validadeConfirmada && (
+                  <p className="text-[11px] text-center text-gray-400">Confirme a validade do produto para prosseguir</p>
+                )}
               </div>
             )}
           </>
         )}
       </div>
-      {/* Modal — cadastrar novo endereço durante inspeção */}
-      <Modal open={showAddModal} onClose={() => { setShowAddModal(false); setNovoItem(novoItemVazio) }} title="Cadastrar Novo Endereço">
+      {/* Modal — incluir novo endereço de inspeção (popup mínimo) */}
+      <Modal open={showAddModal} onClose={() => { setShowAddModal(false); setNovoItem(novoItemVazio) }} title="Incluir Endereço de Inspeção">
         <div className="flex flex-col gap-4">
-          <p className="text-xs text-gray-500">O endereço será criado no estoque e inserido na próxima posição da fila de inspeção.</p>
+          <p className="text-xs text-gray-500">
+            Produto localizado fora do programado? Informe o endereço e o código — a próxima tela
+            segue para a inspeção complementar.
+          </p>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div className="flex flex-col gap-1">
-              <label className="text-xs font-semibold text-gray-600">SKU *</label>
-              <input type="text" value={novoItem.sku}
-                onChange={e => setNovoItem(p => ({ ...p, sku: e.target.value }))}
-                placeholder="Código SKU"
-                className="border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-blue-500" />
-            </div>
-            <div className="flex flex-col gap-1">
-              <label className="text-xs font-semibold text-gray-600">Lote *</label>
-              <input type="text" value={novoItem.lote}
-                onChange={e => setNovoItem(p => ({ ...p, lote: e.target.value }))}
-                placeholder="Número do lote"
-                className="border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-blue-500" />
-            </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-semibold text-gray-600">Endereço * <span className="text-gray-400 font-normal">(ex: 1 - 2 - 0 - 1)</span></label>
+            <input type="text" value={novoItem.endereco}
+              onChange={e => setNovoItem(p => ({ ...p, endereco: e.target.value }))}
+              placeholder="Rua - Prédio - Nível - Apto"
+              autoFocus
+              className="border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-blue-500" />
           </div>
 
           <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold text-gray-600">Descrição *</label>
-            <input type="text" value={novoItem.descricao}
-              onChange={e => setNovoItem(p => ({ ...p, descricao: e.target.value }))}
-              placeholder="Nome do produto"
-              className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
+            <label className="text-xs font-semibold text-gray-600">Código do produto (SKU) *</label>
+            <input type="text" value={novoItem.sku}
+              onChange={e => setNovoItem(p => ({ ...p, sku: e.target.value }))}
+              placeholder="Código SKU"
+              className="border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-blue-500" />
           </div>
 
           <div className="flex flex-col gap-2">
@@ -756,40 +881,14 @@ export default function InspecaoPage() {
             </div>
           </div>
 
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold text-gray-600">Endereço * <span className="text-gray-400 font-normal">(ex: 1 - 2 - 0 - 1)</span></label>
-            <input type="text" value={novoItem.endereco}
-              onChange={e => setNovoItem(p => ({ ...p, endereco: e.target.value }))}
-              placeholder="Rua - Prédio - Nível - Apto"
-              className="border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-blue-500" />
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="flex flex-col gap-1">
-              <label className="text-xs font-semibold text-gray-600">Quantidade</label>
-              <input type="number" min={0} value={novoItem.quantidade}
-                onChange={e => setNovoItem(p => ({ ...p, quantidade: e.target.value }))}
-                placeholder="0"
-                className="border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-blue-500" />
-            </div>
-            <div className="flex flex-col gap-1">
-              <label className="text-xs font-semibold text-gray-600">Validade *</label>
-              <input type="text" inputMode="numeric" value={novoItem.validadeTexto}
-                onChange={e => handleNovoValidadeTexto(e.target.value)}
-                placeholder="DD/MM/AAAA"
-                maxLength={10}
-                className="border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-blue-500" />
-            </div>
-          </div>
-
           <div className="flex justify-end gap-3 pt-2">
             <Button variant="ghost" onClick={() => { setShowAddModal(false); setNovoItem(novoItemVazio) }}>Cancelar</Button>
             <Button
               variant="primary"
-              onClick={handleSalvarNovoEndereco}
-              disabled={savingNovo || !novoItem.sku || !novoItem.descricao || !novoItem.lote || !novoItem.endereco || !novoItem.validadeISO}
+              onClick={handleContinuarNovo}
+              disabled={!novoItem.sku || !novoItem.endereco}
             >
-              {savingNovo ? 'Salvando…' : 'Cadastrar e inspecionar'}
+              Continuar para inspeção →
             </Button>
           </div>
         </div>

@@ -1,4 +1,4 @@
-export type ItemStatus = 'ativo' | 'bloqueado' | 'baixado'
+export type ItemStatus = 'ativo' | 'segregado' | 'bloqueado' | 'baixado'
 
 export interface Item {
   id: string
@@ -11,6 +11,8 @@ export interface Item {
   validade: string
   status: ItemStatus
   nf_perda?: string
+  segregado_em?: string
+  segregado_por?: string
   bloqueado_em?: string
   bloqueado_por?: string
   baixado_em?: string
