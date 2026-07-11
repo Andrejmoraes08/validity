@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState, useCallback } from 'react'
+import { useState } from 'react'
 import { usePerfis, TODAS_TABS, type Perfil } from '@/hooks/usePerfil'
 import { usePerfílContext } from '@/lib/perfil-context'
 import { useToast } from '@/components/layout/Toast'
@@ -8,6 +8,29 @@ import { Modal } from '@/components/ui/Modal'
 import { supabase } from '@/lib/supabase'
 import { useItens } from '@/hooks/useItens'
 import type { Historico } from '@/lib/types'
+
+function tipoEvento(desc: string): string {
+  const d = desc.toLowerCase()
+  if (d.startsWith('inspeção complementar')) return 'Inspeção Complementar'
+  if (d.startsWith('inspeção')) return 'Inspeção'
+  if (d.startsWith('baixa')) return 'Baixa'
+  if (d.includes('bloqueado')) return 'Bloqueio'
+  if (d.startsWith('wms') || d.startsWith('importação')) return 'Importação'
+  return 'Geral'
+}
+
+function maskData(raw: string): { texto: string; iso: string } {
+  const digits = raw.replace(/\D/g, '').slice(0, 8)
+  let texto = digits
+  if (digits.length > 2) texto = digits.slice(0, 2) + '/' + digits.slice(2)
+  if (digits.length > 4) texto = texto.slice(0, 5) + '/' + digits.slice(4)
+  let iso = ''
+  if (digits.length === 8) {
+    const d = digits.slice(0, 2), m = digits.slice(2, 4), y = digits.slice(4, 8)
+    if (!isNaN(new Date(`${y}-${m}-${d}`).getTime())) iso = `${y}-${m}-${d}`
+  }
+  return { texto, iso }
+}
 
 export default function ConfigPage() {
   const { fetchItens } = useItens()
@@ -18,21 +41,76 @@ export default function ConfigPage() {
   const [resetModal, setResetModal] = useState(false)
   const [editPerfil, setEditPerfil] = useState<Perfil | null>(null)
   const [savingPerfil, setSavingPerfil] = useState(false)
-  const [historico, setHistorico] = useState<Historico[]>([])
-  const [loadingHist, setLoadingHist] = useState(false)
+  // Exportação da timeline em Excel com filtro de período
+  const [deTexto, setDeTexto] = useState('')
+  const [deISO, setDeISO] = useState('')
+  const [ateTexto, setAteTexto] = useState('')
+  const [ateISO, setAteISO] = useState('')
+  const [gerando, setGerando] = useState(false)
 
-  const fetchHistorico = useCallback(async () => {
-    setLoadingHist(true)
-    const { data } = await supabase
-      .from('historico')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .limit(200)
-    if (data) setHistorico(data as Historico[])
-    setLoadingHist(false)
-  }, [])
+  const setDe = (raw: string) => { const { texto, iso } = maskData(raw); setDeTexto(texto); setDeISO(iso) }
+  const setAte = (raw: string) => { const { texto, iso } = maskData(raw); setAteTexto(texto); setAteISO(iso) }
 
-  useEffect(() => { fetchHistorico() }, [fetchHistorico])
+  const periodoRapido = (dias: number | null) => {
+    if (dias === null) { setDeTexto(''); setDeISO(''); setAteTexto(''); setAteISO(''); return }
+    const hoje = new Date()
+    const inicio = new Date()
+    inicio.setDate(hoje.getDate() - dias)
+    const toISO = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    const toBR = (d: Date) => d.toLocaleDateString('pt-BR')
+    setDeISO(toISO(inicio)); setDeTexto(toBR(inicio))
+    setAteISO(toISO(hoje)); setAteTexto(toBR(hoje))
+  }
+
+  const gerarExcelTimeline = async () => {
+    setGerando(true)
+    try {
+      // Busca paginada (PostgREST limita 1000 linhas por consulta)
+      const eventos: Historico[] = []
+      const pagina = 1000
+      for (let offset = 0; ; offset += pagina) {
+        let q = supabase
+          .from('historico')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .range(offset, offset + pagina - 1)
+        if (deISO) q = q.gte('created_at', `${deISO}T00:00:00-03:00`)
+        if (ateISO) q = q.lte('created_at', `${ateISO}T23:59:59-03:00`)
+        const { data, error } = await q
+        if (error) { toast('Erro ao buscar eventos', 'error'); setGerando(false); return }
+        eventos.push(...(data as Historico[]))
+        if (!data || data.length < pagina) break
+      }
+
+      if (eventos.length === 0) {
+        toast('Nenhum evento no período selecionado', 'info')
+        setGerando(false)
+        return
+      }
+
+      const { utils, writeFile } = await import('xlsx')
+      const linhas = eventos.map(h => {
+        const dt = new Date(h.created_at)
+        return {
+          'Data': dt.toLocaleDateString('pt-BR'),
+          'Hora': dt.toLocaleTimeString('pt-BR'),
+          'Tipo': tipoEvento(h.descricao),
+          'Evento': h.descricao,
+          'Responsável': h.responsavel,
+        }
+      })
+      const ws = utils.json_to_sheet(linhas)
+      ws['!cols'] = [{ wch: 12 }, { wch: 10 }, { wch: 22 }, { wch: 90 }, { wch: 30 }]
+      const wb = utils.book_new()
+      utils.book_append_sheet(wb, ws, 'Timeline')
+
+      const sufixo = deISO || ateISO ? `${deISO || 'inicio'}_a_${ateISO || 'hoje'}` : 'completa'
+      writeFile(wb, `timeline-eventos-${sufixo}.xlsx`)
+      toast(`Excel gerado: ${eventos.length} eventos`)
+    } finally {
+      setGerando(false)
+    }
+  }
 
   const handleReset = async () => {
     const { data: { user } } = await supabase.auth.getUser()
@@ -151,38 +229,56 @@ export default function ConfigPage() {
         </div>
       )}
 
-      {/* Timeline */}
+      {/* Timeline — exportação em Excel */}
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-          <div>
-            <h2 className="font-bold text-gray-800 text-sm">Timeline de Eventos</h2>
-            <p className="text-xs text-gray-400 mt-0.5">Histórico de todas as operações do sistema</p>
-          </div>
-          <button onClick={fetchHistorico} className="text-xs text-blue-500 hover:text-blue-700 font-semibold">↻ Atualizar</button>
+        <div className="px-6 py-4 border-b border-gray-100">
+          <h2 className="font-bold text-gray-800 text-sm">Timeline de Eventos</h2>
+          <p className="text-xs text-gray-400 mt-0.5">Exporte o histórico completo de operações em Excel, com filtro de período</p>
         </div>
-        <div className="p-5 max-h-96 overflow-y-auto">
-          {loadingHist ? (
-            <div className="flex items-center justify-center h-16">
-              <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+        <div className="p-6 flex flex-col gap-4">
+          {/* Períodos rápidos */}
+          <div className="flex flex-wrap gap-2">
+            {([['Hoje', 0], ['7 dias', 7], ['30 dias', 30], ['90 dias', 90], ['Tudo', null]] as const).map(([label, dias]) => (
+              <button
+                key={label}
+                onClick={() => periodoRapido(dias)}
+                className="px-3 py-1.5 rounded-lg text-xs font-semibold border border-gray-200 bg-gray-50 text-gray-600 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200 transition-colors"
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {/* Período manual */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-semibold text-gray-600">De</label>
+              <input
+                type="text" inputMode="numeric" value={deTexto}
+                onChange={e => setDe(e.target.value)}
+                placeholder="DD/MM/AAAA" maxLength={10}
+                className="border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-blue-500"
+              />
             </div>
-          ) : historico.length === 0 ? (
-            <p className="text-center py-8 text-gray-400 text-sm">Nenhum evento registrado</p>
-          ) : (
-            <div className="flex flex-col">
-              {historico.map((h, i) => (
-                <div key={h.id} className="flex gap-3">
-                  <div className="flex flex-col items-center">
-                    <div className="w-2 h-2 rounded-full bg-blue-500 mt-1.5 flex-shrink-0" />
-                    {i < historico.length - 1 && <div className="w-px flex-1 bg-gray-100 mt-1" />}
-                  </div>
-                  <div className="flex-1 pb-3">
-                    <div className="text-xs text-gray-800">{h.descricao}</div>
-                    <div className="text-[11px] text-gray-400 mt-0.5">{h.responsavel} · {new Date(h.created_at).toLocaleString('pt-BR')}</div>
-                  </div>
-                </div>
-              ))}
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-semibold text-gray-600">Até</label>
+              <input
+                type="text" inputMode="numeric" value={ateTexto}
+                onChange={e => setAte(e.target.value)}
+                placeholder="DD/MM/AAAA" maxLength={10}
+                className="border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-blue-500"
+              />
             </div>
-          )}
+          </div>
+          <p className="text-[11px] text-gray-400 -mt-2">Deixe em branco para exportar desde o início / até hoje</p>
+
+          <Button variant="primary" onClick={gerarExcelTimeline} disabled={gerando} className="w-full justify-center py-2.5">
+            {gerando ? '⏳ Gerando…' : '📊 Gerar Excel da Timeline'}
+          </Button>
+
+          <p className="text-[11px] text-gray-400">
+            Colunas: <span className="font-mono">Data · Hora · Tipo · Evento · Responsável</span> — eventos do mais recente para o mais antigo
+          </p>
         </div>
       </div>
 
