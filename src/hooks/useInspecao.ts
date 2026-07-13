@@ -11,9 +11,12 @@ export interface EntradaFila {
   endereco: string
 }
 
+export type AcaoInspecao = 'ok' | 'segregado' | 'baixa'
+
 export interface Resultado {
   entrada: EntradaFila
   ok: boolean
+  acao: AcaoInspecao
   validadeEncontrada: string
   validadeAlterada: boolean
   obs: string
@@ -53,7 +56,7 @@ export function useInspecao() {
     const entrada = state.fila[state.atual]
     const { item, tipo } = entrada
     const validadeAlterada = validadeEncontrada !== item.validade
-    const resultado: Resultado = { entrada, ok, validadeEncontrada, validadeAlterada, obs, foto }
+    const resultado: Resultado = { entrada, ok, acao: ok ? 'ok' : 'segregado', validadeEncontrada, validadeAlterada, obs, foto }
     const novosResultados = [...state.resultados, resultado]
     const { data: { user } } = await supabase.auth.getUser()
     const now = new Date().toISOString()
@@ -97,11 +100,47 @@ export function useInspecao() {
     }
   }
 
+  // Baixa de endereço: zera saldo e remove do estoque (status 'baixado')
+  const baixarEndereco = async (obs: string) => {
+    const entrada = state.fila[state.atual]
+    const { item, tipo } = entrada
+    const { data: { user } } = await supabase.auth.getUser()
+    const now = new Date().toISOString()
+
+    await supabase.from('itens').update({
+      quantidade: 0,
+      status: 'baixado',
+      baixado_em: now,
+      ultima_inspecao: now,
+      inspecionado_por: state.responsavel,
+      observacao_inspecao: obs || null,
+    }).eq('id', item.id)
+
+    const endLabel = tipo === 'frac' ? 'Frac.' : 'Gran.'
+    await supabase.from('historico').insert({
+      descricao: `Baixa de endereço ${endLabel}: ${item.sku} — ${entrada.endereco} (saldo zerado na inspeção)`,
+      responsavel: state.responsavel,
+      user_id: user!.id,
+    })
+
+    const resultado: Resultado = {
+      entrada, ok: true, acao: 'baixa',
+      validadeEncontrada: item.validade, validadeAlterada: false, obs,
+    }
+    const novosResultados = [...state.resultados, resultado]
+    const proximo = state.atual + 1
+    if (proximo >= state.fila.length) {
+      setState(s => ({ ...s, resultados: novosResultados, phase: 'done' }))
+    } else {
+      setState(s => ({ ...s, resultados: novosResultados, atual: proximo }))
+    }
+  }
+
   const reiniciar = () => setState(initial)
 
   const registrarExtra = (resultado: Resultado) => {
     setState(s => ({ ...s, resultados: [...s.resultados, resultado] }))
   }
 
-  return { state, iniciar, confirmar, reiniciar, registrarExtra }
+  return { state, iniciar, confirmar, baixarEndereco, reiniciar, registrarExtra }
 }

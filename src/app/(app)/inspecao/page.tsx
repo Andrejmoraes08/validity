@@ -32,7 +32,7 @@ const novoItemVazio = {
 
 export default function InspecaoPage() {
   const { itens, loading, addItem } = useItens()
-  const { state, iniciar, confirmar, reiniciar, registrarExtra } = useInspecao()
+  const { state, iniciar, confirmar, baixarEndereco, reiniciar, registrarExtra } = useInspecao()
   const { toast } = useToast()
   const [responsavel, setResponsavel] = useState('')
   const [validadeEncontrada, setValidadeEncontrada] = useState('') // ISO YYYY-MM-DD
@@ -42,6 +42,7 @@ export default function InspecaoPage() {
   const [processing, setProcessing] = useState(false)
   const [showSegregar, setShowSegregar] = useState(false)
   const [qtdSegregar, setQtdSegregar] = useState('')
+  const [showBaixa, setShowBaixa] = useState(false)
   const [validadeConfirmada, setValidadeConfirmada] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
@@ -229,6 +230,7 @@ export default function InspecaoPage() {
       registrarExtra({
         entrada: { item: novo as Item, tipo, endereco },
         ok: true,
+        acao: 'ok',
         validadeEncontrada: validadeISO,
         validadeAlterada: false,
         obs: complObs,
@@ -261,6 +263,7 @@ export default function InspecaoPage() {
     setFoto(undefined)
     setShowSegregar(false)
     setQtdSegregar('')
+    setShowBaixa(false)
   }
 
   const handleConfirmarOk = async () => {
@@ -276,6 +279,13 @@ export default function InspecaoPage() {
     if (!qtdSegregar) return
     setProcessing(true)
     await confirmar(false, validadeEfetiva, obs, foto, Number(qtdSegregar))
+    limparEstado()
+    setProcessing(false)
+  }
+
+  const handleBaixaEndereco = async () => {
+    setProcessing(true)
+    await baixarEndereco(obs)
     limparEstado()
     setProcessing(false)
   }
@@ -436,14 +446,18 @@ export default function InspecaoPage() {
         <div className="text-4xl mb-3">✓</div>
         <h2 className="text-lg font-extrabold text-gray-900">Inspeção Concluída!</h2>
         <p className="text-sm text-gray-400 mt-1">{state.resultados.length} itens inspecionados por {state.responsavel}</p>
-        <div className="grid grid-cols-2 gap-4 mt-6">
+        <div className="grid grid-cols-3 gap-4 mt-6">
           <div className="bg-green-50 rounded-lg p-4">
-            <div className="text-2xl font-extrabold font-mono text-green-700">{state.resultados.filter(r => r.ok).length}</div>
+            <div className="text-2xl font-extrabold font-mono text-green-700">{state.resultados.filter(r => r.acao === 'ok').length}</div>
             <div className="text-xs text-green-600 mt-1">Aprovados</div>
           </div>
           <div className="bg-orange-50 rounded-lg p-4">
-            <div className="text-2xl font-extrabold font-mono text-orange-700">{state.resultados.filter(r => !r.ok).length}</div>
+            <div className="text-2xl font-extrabold font-mono text-orange-700">{state.resultados.filter(r => r.acao === 'segregado').length}</div>
             <div className="text-xs text-orange-600 mt-1">Segregados</div>
+          </div>
+          <div className="bg-gray-100 rounded-lg p-4">
+            <div className="text-2xl font-extrabold font-mono text-gray-600">{state.resultados.filter(r => r.acao === 'baixa').length}</div>
+            <div className="text-xs text-gray-500 mt-1">Baixados</div>
           </div>
         </div>
         <Button variant="primary" onClick={reiniciar} className="mt-6 w-full justify-center">
@@ -484,8 +498,12 @@ export default function InspecaoPage() {
                   }
                 </td>
                 <td className="px-4 py-3">
-                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${r.ok ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'}`}>
-                    {r.ok ? 'OK' : 'Segregado'}
+                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                    r.acao === 'ok' ? 'bg-green-100 text-green-700'
+                    : r.acao === 'segregado' ? 'bg-orange-100 text-orange-700'
+                    : 'bg-gray-200 text-gray-600'
+                  }`}>
+                    {r.acao === 'ok' ? 'OK' : r.acao === 'segregado' ? 'Segregado' : 'Baixado'}
                   </span>
                 </td>
               </tr>
@@ -849,6 +867,35 @@ export default function InspecaoPage() {
             )}
           </>
         )}
+
+        {/* Baixa de endereço — disponível em ambos os fluxos */}
+        <div className="border-t border-gray-100 pt-4">
+          {!showBaixa ? (
+            <button
+              onClick={() => setShowBaixa(true)}
+              disabled={processing}
+              className="w-full py-2.5 rounded-lg text-sm font-semibold border border-gray-200 text-gray-500 hover:border-red-200 hover:text-red-600 hover:bg-red-50 transition-colors"
+            >
+              🗑 Realizar baixa de endereço
+            </button>
+          ) : (
+            <div className="flex flex-col gap-3 rounded-xl border border-red-200 bg-red-50 p-4">
+              <p className="text-xs font-semibold text-red-700">Confirmar baixa do endereço {enderecoAtual}?</p>
+              <p className="text-[11px] text-red-600">
+                O saldo será zerado e o item <strong>baixado</strong> — não constará mais no estoque,
+                nas inspeções nem nos relatórios.
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                <Button variant="ghost" size="sm" onClick={() => setShowBaixa(false)} disabled={processing} className="justify-center">
+                  Cancelar
+                </Button>
+                <Button variant="danger" size="sm" onClick={handleBaixaEndereco} disabled={processing} className="justify-center">
+                  {processing ? 'Salvando…' : 'Confirmar Baixa'}
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
       {/* Modal — incluir novo endereço de inspeção (popup mínimo) */}
       <Modal open={showAddModal} onClose={() => { setShowAddModal(false); setNovoItem(novoItemVazio) }} title="Incluir Endereço de Inspeção">
