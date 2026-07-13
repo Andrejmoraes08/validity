@@ -1,7 +1,7 @@
 'use client'
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useItens } from '@/hooks/useItens'
-import { useInspecao, type EntradaFila } from '@/hooks/useInspecao'
+import { useInspecao, type EntradaFila, type InspecaoAberta } from '@/hooks/useInspecao'
 import { ZoneCell } from '@/components/ui/ZoneCell'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
@@ -32,8 +32,20 @@ const novoItemVazio = {
 
 export default function InspecaoPage() {
   const { itens, loading, addItem } = useItens()
-  const { state, iniciar, confirmar, baixarEndereco, reiniciar, registrarExtra } = useInspecao()
+  const { state, iniciar, retomar, buscarAberta, cancelarAberta, confirmar, baixarEndereco, reiniciar, registrarExtra } = useInspecao()
   const { toast } = useToast()
+
+  // Inspeção aberta no banco (para retomar ou avisar antes de abrir nova)
+  const [aberta, setAberta] = useState<InspecaoAberta | null>(null)
+  const [confirmNova, setConfirmNova] = useState(false)
+  const [iniciando, setIniciando] = useState(false)
+
+  useEffect(() => {
+    if (state.phase !== 'idle') return
+    let ativo = true
+    buscarAberta().then(a => { if (ativo) setAberta(a) })
+    return () => { ativo = false }
+  }, [state.phase, buscarAberta])
   const [responsavel, setResponsavel] = useState('')
   const [validadeEncontrada, setValidadeEncontrada] = useState('') // ISO YYYY-MM-DD
   const [validadeTexto, setValidadeTexto] = useState('')           // exibição DD/MM/AAAA
@@ -241,9 +253,29 @@ export default function InspecaoPage() {
     setSavingNovo(false)
   }
 
-  const handleIniciar = () => {
+  const handleIniciar = async () => {
     if (!responsavel || entradasFiltradas.length === 0) return
-    iniciar(entradasFiltradas, responsavel)
+    if (aberta) { setConfirmNova(true); return }
+    await doIniciar()
+  }
+
+  const doIniciar = async () => {
+    setIniciando(true)
+    if (aberta) await cancelarAberta(aberta)
+    const { error } = await iniciar(entradasFiltradas, responsavel)
+    setIniciando(false)
+    setConfirmNova(false)
+    if (error) {
+      toast('Erro ao iniciar inspeção — verifique a migration 005', 'error')
+    } else {
+      setAberta(null)
+      limparEstado()
+    }
+  }
+
+  const handleRetomar = () => {
+    if (!aberta) return
+    retomar(aberta, itens)
     limparEstado()
   }
 
@@ -303,6 +335,28 @@ export default function InspecaoPage() {
         <h1 className="text-xl font-extrabold text-gray-900">Inspeção de Estoque</h1>
         <p className="text-sm text-gray-400">Filtre por rua e zona antes de iniciar</p>
       </div>
+
+      {/* Inspeção em aberto — retomar */}
+      {aberta && (
+        <div className="bg-blue-50 rounded-xl border border-blue-200 p-5 shadow-sm flex flex-col gap-3">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-extrabold text-blue-800">Inspeção #{aberta.numero} em aberto</span>
+                <span className="text-[10px] font-bold bg-blue-600 text-white px-2 py-0.5 rounded-full">
+                  {aberta.atual}/{aberta.fila.length}
+                </span>
+              </div>
+              <p className="text-xs text-blue-600 mt-1">
+                Iniciada por <strong>{aberta.responsavel}</strong> em {fmtDateTime(aberta.iniciada_em)}
+              </p>
+            </div>
+          </div>
+          <Button variant="primary" onClick={handleRetomar} className="w-full justify-center py-2.5">
+            ▶ Retomar de onde parou
+          </Button>
+        </div>
+      )}
 
       {/* Contadores */}
       <div className="grid grid-cols-3 gap-3 text-center">
@@ -427,15 +481,38 @@ export default function InspecaoPage() {
         <Button
           variant="primary"
           onClick={handleIniciar}
-          disabled={!responsavel || entradasFiltradas.length === 0}
+          disabled={!responsavel || entradasFiltradas.length === 0 || iniciando}
           className="w-full justify-center py-3"
         >
-          Iniciar Inspeção ({entradasFiltradas.length} endereços)
+          {iniciando ? 'Abrindo…' : `Iniciar Inspeção (${entradasFiltradas.length} endereços)`}
         </Button>
         {entradasFiltradas.length === 0 && (ruasSelecionadas.length > 0 || zonasSelecionadas.length > 0) && (
           <p className="text-xs text-center text-amber-600">Nenhum endereço corresponde aos filtros selecionados</p>
         )}
       </div>
+
+      {/* Modal — já existe inspeção em aberto */}
+      <Modal open={confirmNova} onClose={() => setConfirmNova(false)} title="Inspeção em Aberto">
+        <div className="flex flex-col gap-4">
+          <p className="text-sm text-gray-600">
+            Já existe a <strong>Inspeção #{aberta?.numero}</strong> em aberto, iniciada por{' '}
+            <strong>{aberta?.responsavel}</strong> em {aberta ? fmtDateTime(aberta.iniciada_em) : ''} —
+            progresso {aberta?.atual}/{aberta?.fila.length} endereços.
+          </p>
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+            <p className="text-xs text-amber-700">
+              Ao abrir uma nova inspeção, a inspeção em aberto será <strong>cancelada</strong> e o
+              progresso restante não poderá ser retomado. Deseja continuar?
+            </p>
+          </div>
+          <div className="flex justify-end gap-3">
+            <Button variant="ghost" onClick={() => setConfirmNova(false)}>Voltar</Button>
+            <Button variant="danger" onClick={doIniciar} disabled={iniciando}>
+              {iniciando ? 'Abrindo…' : 'Cancelar aberta e iniciar nova'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   )
 
@@ -444,8 +521,13 @@ export default function InspecaoPage() {
     <div className="flex flex-col gap-6 max-w-2xl mx-auto">
       <div className="bg-white rounded-xl border border-green-100 p-6 shadow-sm text-center">
         <div className="text-4xl mb-3">✓</div>
-        <h2 className="text-lg font-extrabold text-gray-900">Inspeção Concluída!</h2>
-        <p className="text-sm text-gray-400 mt-1">{state.resultados.length} itens inspecionados por {state.responsavel}</p>
+        <h2 className="text-lg font-extrabold text-gray-900">
+          Inspeção {state.numero ? `#${state.numero} ` : ''}Concluída!
+        </h2>
+        <p className="text-sm text-gray-400 mt-1">
+          {state.resultados.length} itens inspecionados por {state.responsavel}
+          {state.iniciadaEm ? ` · iniciada em ${fmtDateTime(state.iniciadaEm)}` : ''}
+        </p>
         <div className="grid grid-cols-3 gap-4 mt-6">
           <div className="bg-green-50 rounded-lg p-4">
             <div className="text-2xl font-extrabold font-mono text-green-700">{state.resultados.filter(r => r.acao === 'ok').length}</div>
@@ -605,8 +687,13 @@ export default function InspecaoPage() {
     <div className="max-w-lg mx-auto flex flex-col gap-4">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-extrabold text-gray-900">Inspeção Ativa</h1>
-          <p className="text-sm text-gray-400">Item {state.atual + 1} de {state.fila.length} — {state.responsavel}</p>
+          <h1 className="text-xl font-extrabold text-gray-900">
+            Inspeção {state.numero ? `#${state.numero}` : 'Ativa'}
+          </h1>
+          <p className="text-sm text-gray-400">
+            Item {state.atual + 1} de {state.fila.length} — {state.responsavel}
+            {state.iniciadaEm ? ` · ${new Date(state.iniciadaEm).toLocaleDateString('pt-BR')}` : ''}
+          </p>
         </div>
         <div className="flex items-center gap-3">
           <div className="text-right">

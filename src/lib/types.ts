@@ -19,6 +19,7 @@ export interface Item {
   ultima_inspecao?: string
   inspecionado_por?: string
   observacao_inspecao?: string
+  foto_inspecao?: string
   created_at: string
   updated_at: string
   user_id: string
