@@ -10,9 +10,10 @@ import { fmtDate, fmtDateTime } from '@/lib/utils'
 import type { Item } from '@/lib/types'
 
 export default function PlanoAcaoPage() {
-  const { itens, loading, bloquearItem } = useItens()
+  const { itens, loading, bloquearItem, estornarItem } = useItens()
   const { toast } = useToast()
   const [bloqueioTarget, setBloqueioTarget] = useState<Item | null>(null)
+  const [estornoTarget, setEstornoTarget] = useState<Item | null>(null)
   const [responsavel, setResponsavel] = useState('')
 
   const ativos = useMemo(() => itens.filter(i => i.status === 'ativo'), [itens])
@@ -41,6 +42,15 @@ export default function PlanoAcaoPage() {
     if (error) toast('Erro ao bloquear item', 'error')
     else toast(`${bloqueioTarget.sku} bloqueado`)
     setBloqueioTarget(null)
+    setResponsavel('')
+  }
+
+  const handleEstorno = async () => {
+    if (!estornoTarget || !responsavel) return
+    const { error } = await estornarItem(estornoTarget.id, responsavel)
+    if (error) toast('Erro ao estornar segregação', 'error')
+    else toast(`${estornoTarget.sku} retornou ao estoque ativo`)
+    setEstornoTarget(null)
     setResponsavel('')
   }
 
@@ -119,6 +129,86 @@ export default function PlanoAcaoPage() {
     toast('PDF gerado com sucesso')
   }
 
+  const exportarSegregadosPDF = async () => {
+    if (segregados.length === 0) { toast('Nenhum item segregado para exportar', 'info'); return }
+    const { jsPDF } = await import('jspdf')
+    const autoTable = (await import('jspdf-autotable')).default
+
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
+    const hoje = new Date().toLocaleDateString('pt-BR')
+
+    doc.setFillColor(26, 29, 36)
+    doc.rect(0, 0, 297, 18, 'F')
+    doc.setTextColor(255, 255, 255)
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(13)
+    doc.text('VALIDITY — Produtos Segregados', 10, 12)
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(9)
+    doc.text(`Aguardando confirmação de bloqueio   |   Gerado em: ${hoje}   |   Total: ${segregados.length} itens`, 10, 17.5)
+
+    const rows = segregados.map(i => {
+      const dias = diasParaVencer(i.validade)
+      const diasLabel = dias < 0 ? `${Math.abs(dias)}d vencido` : `${dias}d restantes`
+      return [
+        i.sku, i.descricao, i.lote,
+        i.endereco_frac || i.endereco_gran, String(i.quantidade),
+        fmtDate(i.validade), diasLabel,
+        i.segregado_por || '—',
+        i.segregado_em ? new Date(i.segregado_em).toLocaleDateString('pt-BR') : '—',
+      ]
+    })
+
+    const hexToRgb = (hex: string) => ({
+      r: parseInt(hex.slice(1, 3), 16),
+      g: parseInt(hex.slice(3, 5), 16),
+      b: parseInt(hex.slice(5, 7), 16),
+    })
+
+    autoTable(doc, {
+      startY: 22,
+      head: [['SKU', 'Descrição', 'Lote', 'Endereço', 'Qtde', 'Validade', 'Dias', 'Segregado por', 'Em']],
+      body: rows,
+      styles: { fontSize: 8, cellPadding: 3, font: 'helvetica', overflow: 'linebreak' },
+      headStyles: { fillColor: [26, 29, 36], textColor: 255, fontStyle: 'bold', fontSize: 8 },
+      columnStyles: {
+        0: { cellWidth: 20, fontStyle: 'bold' },
+        1: { cellWidth: 62 },
+        2: { cellWidth: 20 },
+        3: { cellWidth: 30 },
+        4: { cellWidth: 14, halign: 'center' },
+        5: { cellWidth: 24, halign: 'center' },
+        6: { cellWidth: 26, halign: 'center' },
+        7: { cellWidth: 40 },
+        8: { cellWidth: 22, halign: 'center' },
+      },
+      alternateRowStyles: { fillColor: [248, 249, 251] },
+      didParseCell: (data) => {
+        if (data.section === 'body' && data.column.index === 5) {
+          const item = segregados[data.row.index]
+          if (!item) return
+          const z = getZone(item.validade)
+          const rgb = hexToRgb(z.color)
+          data.cell.styles.fillColor = [rgb.r, rgb.g, rgb.b]
+          data.cell.styles.textColor = z.textColor === '#ffffff' ? [255, 255, 255] : [26, 29, 36]
+          data.cell.styles.fontStyle = 'bold'
+        }
+      },
+    })
+
+    const pageCount = (doc as InstanceType<typeof jsPDF> & { internal: { getNumberOfPages: () => number } }).internal.getNumberOfPages()
+    for (let i = 1; i <= pageCount; i++) {
+      doc.setPage(i)
+      doc.setFontSize(7)
+      doc.setTextColor(150)
+      doc.text(`Página ${i} de ${pageCount}`, 287, 205, { align: 'right' })
+      doc.text('VALIDITY · Gestão de Validade de Estoque · GRF Distribuição', 10, 205)
+    }
+
+    doc.save(`segregados-${new Date().toISOString().split('T')[0]}.pdf`)
+    toast('PDF de segregados gerado')
+  }
+
   const ItemTable = ({ items, onBloqueio }: { items: Item[]; onBloqueio?: (i: Item) => void }) => (
     <div className="overflow-x-auto">
       {items.length === 0 ? (
@@ -176,6 +266,9 @@ export default function PlanoAcaoPage() {
             <h2 className="font-bold text-orange-700">Segregados na Inspeção — aguardando confirmação de bloqueio</h2>
             <span className="bg-orange-500 text-white text-[11px] font-bold px-2 py-0.5 rounded-full">{segregados.length}</span>
           </div>
+          <Button size="sm" variant="secondary" onClick={exportarSegregadosPDF}>
+            Exportar PDF
+          </Button>
         </div>
         <div className="overflow-x-auto">
           {segregados.length === 0 ? (
@@ -201,7 +294,10 @@ export default function PlanoAcaoPage() {
                     <td className="px-4 py-3 text-gray-500">{item.segregado_por || '—'}</td>
                     <td className="px-4 py-3 text-gray-500">{item.segregado_em ? fmtDateTime(item.segregado_em) : '—'}</td>
                     <td className="px-4 py-3">
-                      <Button size="sm" variant="danger" onClick={() => setBloqueioTarget(item)}>Confirmar Bloqueio</Button>
+                      <div className="flex gap-2">
+                        <Button size="sm" variant="danger" onClick={() => setBloqueioTarget(item)}>Confirmar Bloqueio</Button>
+                        <Button size="sm" variant="ghost" onClick={() => setEstornoTarget(item)}>Estornar</Button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -259,6 +355,33 @@ export default function PlanoAcaoPage() {
         <div className="flex justify-end gap-3">
           <Button variant="ghost" onClick={() => setBloqueioTarget(null)}>Cancelar</Button>
           <Button variant="danger" onClick={handleBloqueio} disabled={!responsavel}>Confirmar Bloqueio</Button>
+        </div>
+      </Modal>
+
+      {/* Modal de estorno de segregação */}
+      <Modal open={!!estornoTarget} onClose={() => { setEstornoTarget(null); setResponsavel('') }} title="Estornar Segregação">
+        <p className="text-sm text-gray-600 mb-3">
+          Estornando <strong>{estornoTarget?.sku}</strong> — {estornoTarget?.descricao}
+        </p>
+        <div className="rounded-lg border border-blue-100 bg-blue-50 p-3 mb-4">
+          <p className="text-xs text-blue-700">
+            O item retornará ao <strong>estoque ativo</strong> e voltará a aparecer nas zonas do
+            Plano de Ação e nas próximas inspeções.
+          </p>
+        </div>
+        <div className="flex flex-col gap-1 mb-6">
+          <label className="text-xs font-semibold text-gray-600">Responsável *</label>
+          <input
+            type="text"
+            value={responsavel}
+            onChange={e => setResponsavel(e.target.value)}
+            placeholder="Nome do responsável"
+            className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
+          />
+        </div>
+        <div className="flex justify-end gap-3">
+          <Button variant="ghost" onClick={() => { setEstornoTarget(null); setResponsavel('') }}>Cancelar</Button>
+          <Button variant="primary" onClick={handleEstorno} disabled={!responsavel}>Confirmar Estorno</Button>
         </div>
       </Modal>
     </div>

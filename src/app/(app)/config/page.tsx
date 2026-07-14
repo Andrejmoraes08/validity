@@ -14,6 +14,7 @@ function tipoEvento(desc: string): string {
   if (d.startsWith('inspeção complementar')) return 'Inspeção Complementar'
   if (d.startsWith('inspeção')) return 'Inspeção'
   if (d.startsWith('baixa')) return 'Baixa'
+  if (d.startsWith('estorno')) return 'Estorno'
   if (d.includes('bloqueado')) return 'Bloqueio'
   if (d.startsWith('wms') || d.startsWith('importação')) return 'Importação'
   return 'Geral'

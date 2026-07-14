@@ -56,6 +56,27 @@ export function useItens() {
     return { error }
   }
 
+  // Estorno de segregação: item volta ao estoque ativo
+  const estornarItem = async (id: string, responsavel: string) => {
+    const item = itens.find(i => i.id === id)
+    if (!item) return { error: new Error('Item não encontrado') }
+    const { data: { user } } = await supabase.auth.getUser()
+    const { error } = await supabase.from('itens').update({
+      status: 'ativo',
+      segregado_em: null,
+      segregado_por: null,
+    }).eq('id', id)
+    if (!error) {
+      await supabase.from('historico').insert({
+        descricao: `Estorno de segregação: ${item.sku} — ${item.endereco_frac || item.endereco_gran} retornou ao estoque ativo`,
+        responsavel,
+        user_id: user!.id,
+      })
+      await fetchItens()
+    }
+    return { error }
+  }
+
   const baixarItem = async (id: string, nf: string, responsavel: string) => {
     const item = itens.find(i => i.id === id)
     if (!item) return { error: new Error('Item não encontrado') }
@@ -93,5 +114,5 @@ export function useItens() {
     return { error: errUpdate }
   }
 
-  return { itens, loading, fetchItens, addItem, updateItem, deleteItem, bloquearItem, baixarItem }
+  return { itens, loading, fetchItens, addItem, updateItem, deleteItem, bloquearItem, estornarItem, baixarItem }
 }
