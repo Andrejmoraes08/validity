@@ -10,19 +10,57 @@ export default function WmsPage() {
   const { toast } = useToast()
   const valRef = useRef<HTMLInputElement>(null)
 
-  const [status, setStatus] = useState<{ atualizados: number; criados: number; erros: number; ignoradas: number; total: number } | null>(null)
+  const [status, setStatus] = useState<{
+    atualizados: number; criados: number; erros: number; ignoradas: number
+    semValidade: number; exemploInvalido: string; total: number
+  } | null>(null)
   const [loading, setLoading] = useState(false)
   const [progresso, setProgresso] = useState<{ atual: number; total: number } | null>(null)
 
   function excelSerialToISO(v: unknown): string | null {
-    if (!v || v === '') return null
-    if (typeof v === 'number' && v > 1000) {
-      const d = new Date(Math.round((v - 25569) * 86400 * 1000))
+    if (v === null || v === undefined || v === '') return null
+
+    // Date object (algumas leituras do xlsx retornam Date)
+    if (v instanceof Date) {
+      if (isNaN(v.getTime())) return null
+      return `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}-${String(v.getDate()).padStart(2, '0')}`
+    }
+
+    // Número serial do Excel — aceita número ou texto numérico ("46234", "46234,5")
+    const n = typeof v === 'number'
+      ? v
+      : (/^\d+([.,]\d+)?$/.test(String(v).trim()) ? parseFloat(String(v).trim().replace(',', '.')) : NaN)
+    if (!isNaN(n) && n > 10000 && n < 80000) {
+      const d = new Date(Math.round((n - 25569) * 86400 * 1000))
       return d.toISOString().split('T')[0]
     }
-    const s = String(v)
-    const m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/)
-    if (m) return `${m[3]}-${m[2]}-${m[1]}`
+
+    const s = String(v).trim()
+
+    // DD/MM/AAAA ou D/M/AA — com ou sem hora depois
+    let m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})(\s.*)?$/)
+    if (m) {
+      const dia = m[1].padStart(2, '0')
+      const mes = m[2].padStart(2, '0')
+      const ano = m[3].length === 2 ? `20${m[3]}` : m[3]
+      const iso = `${ano}-${mes}-${dia}`
+      return isNaN(new Date(iso).getTime()) ? null : iso
+    }
+
+    // DD-MM-AAAA
+    m = s.match(/^(\d{1,2})-(\d{1,2})-(\d{4})(\s.*)?$/)
+    if (m) {
+      const iso = `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`
+      return isNaN(new Date(iso).getTime()) ? null : iso
+    }
+
+    // AAAA-MM-DD (ISO)
+    m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})([T\s].*)?$/)
+    if (m) {
+      const iso = `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`
+      return isNaN(new Date(iso).getTime()) ? null : iso
+    }
+
     return null
   }
 
@@ -56,7 +94,8 @@ export default function WmsPage() {
       return key !== undefined ? r[key] : undefined
     }
 
-    let atualizados = 0, criados = 0, erros = 0, ignoradas = 0
+    let atualizados = 0, criados = 0, erros = 0, ignoradas = 0, semValidade = 0
+    let exemploInvalido = ''
     let linha = 0
     setProgresso({ atual: 0, total: rows.length })
 
@@ -71,11 +110,18 @@ export default function WmsPage() {
       const apto = String(col(r, 'Apartamento') ?? '').trim()
       const qtdeRaw = Number(col(r, 'Qtde') ?? 0)
       const quantidade = qtdeRaw < 0 ? 0 : qtdeRaw
-      const validade = excelSerialToISO(col(r, 'validade') || col(r, 'ValidadeNova')) ?? '9999-12-31'
+      const validadeRaw = col(r, 'validade') || col(r, 'ValidadeNova')
+      const validadeISO = excelSerialToISO(validadeRaw)
       const endereco = fmtEnd(rua, predio, nivel, apto)
       const isPicking = nivel === '0'
 
       if (!sku || !endereco) { ignoradas++; continue }
+
+      if (!validadeISO) {
+        semValidade++
+        const raw = String(validadeRaw ?? '').trim()
+        if (!exemploInvalido && raw) exemploInvalido = raw
+      }
 
       const { data: existentes } = await supabase
         .from('itens')
@@ -85,9 +131,10 @@ export default function WmsPage() {
         .limit(1)
 
       if (existentes && existentes.length > 0) {
-        // Descrição vazia na planilha nunca apaga a descrição existente
+        // Data inválida ou descrição vazia na planilha nunca sobrescrevem o cadastro
         const { error } = await supabase.from('itens').update({
-          validade, quantidade,
+          quantidade,
+          ...(validadeISO ? { validade: validadeISO } : {}),
           ...(descricao ? { descricao } : {}),
         }).eq('id', existentes[0].id)
         if (error) erros++
@@ -97,7 +144,7 @@ export default function WmsPage() {
           sku, descricao: descricao || '(sem descrição)', lote: 'S/L',
           endereco_frac: isPicking ? endereco : '',
           endereco_gran: isPicking ? '' : endereco,
-          quantidade, validade, status: 'ativo', user_id: user!.id,
+          quantidade, validade: validadeISO ?? '9999-12-31', status: 'ativo', user_id: user!.id,
         })
         if (error) erros++
         else criados++
@@ -105,12 +152,12 @@ export default function WmsPage() {
     }
 
     await supabase.from('historico').insert({
-      descricao: `Importação de endereços: ${rows.length} linhas — ${atualizados} atualizados, ${criados} criados, ${ignoradas} ignoradas, ${erros} erros`,
+      descricao: `Importação de endereços: ${rows.length} linhas — ${atualizados} atualizados, ${criados} criados, ${ignoradas} ignoradas, ${semValidade} sem validade válida, ${erros} erros`,
       responsavel: user!.email ?? 'sistema',
       user_id: user!.id,
     })
 
-    setStatus({ atualizados, criados, erros, ignoradas, total: rows.length })
+    setStatus({ atualizados, criados, erros, ignoradas, semValidade, exemploInvalido, total: rows.length })
     setProgresso(null)
     setLoading(false)
     fetchItens()
@@ -174,6 +221,11 @@ export default function WmsPage() {
                 <span className="bg-blue-50 text-blue-700 px-2 py-1 rounded font-semibold">✓ {status.atualizados} atualizados</span>
                 <span className="bg-green-50 text-green-700 px-2 py-1 rounded font-semibold">+ {status.criados} criados</span>
                 {status.ignoradas > 0 && <span className="bg-amber-50 text-amber-700 px-2 py-1 rounded font-semibold">⊘ {status.ignoradas} ignoradas</span>}
+                {status.semValidade > 0 && (
+                  <span className="bg-amber-100 text-amber-800 px-2 py-1 rounded font-semibold">
+                    ⚠ {status.semValidade} sem validade válida{status.exemploInvalido ? ` (ex: "${status.exemploInvalido}")` : ''}
+                  </span>
+                )}
                 {status.erros > 0 && <span className="bg-red-50 text-red-700 px-2 py-1 rounded font-semibold">✕ {status.erros} erros</span>}
               </div>
             )}
