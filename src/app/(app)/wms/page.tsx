@@ -32,6 +32,11 @@ export default function WmsPage() {
     return partes.join(' - ')
   }
 
+  // Normaliza nome de coluna: minúsculas, sem acentos, sem espaços
+  function normCol(s: string): string {
+    return s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, '')
+  }
+
   const processarValidades = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
@@ -43,6 +48,14 @@ export default function WmsPage() {
     const rows = utils.sheet_to_json<Record<string, unknown>>(read(buf).Sheets[read(buf).SheetNames[0]], { defval: '' })
     const { data: { user } } = await supabase.auth.getUser()
 
+    // Mapa de cabeçalhos normalizado — aceita "Descrição", "descricao", "DESCRICAO" etc.
+    const headerMap = new Map<string, string>()
+    for (const k of Object.keys(rows[0] ?? {})) headerMap.set(normCol(k), k)
+    const col = (r: Record<string, unknown>, nome: string): unknown => {
+      const key = headerMap.get(normCol(nome))
+      return key !== undefined ? r[key] : undefined
+    }
+
     let atualizados = 0, criados = 0, erros = 0, ignoradas = 0
     let linha = 0
     setProgresso({ atual: 0, total: rows.length })
@@ -50,15 +63,15 @@ export default function WmsPage() {
     for (const r of rows) {
       linha++
       setProgresso({ atual: linha, total: rows.length })
-      const sku = String(r['idProduto'] ?? '').trim()
-      const descricao = String(r['Descricao'] ?? '').trim()
-      const rua = String(r['Rua'] ?? '').trim()
-      const predio = String(r['Predio'] ?? '').trim()
-      const nivel = String(r['Nivel'] ?? '').trim()
-      const apto = String(r['Apartamento'] ?? '').trim()
-      const qtdeRaw = Number(r['Qtde'] ?? 0)
+      const sku = String(col(r, 'idProduto') ?? '').trim()
+      const descricao = String(col(r, 'Descricao') ?? '').trim()
+      const rua = String(col(r, 'Rua') ?? '').trim()
+      const predio = String(col(r, 'Predio') ?? '').trim()
+      const nivel = String(col(r, 'Nivel') ?? '').trim()
+      const apto = String(col(r, 'Apartamento') ?? '').trim()
+      const qtdeRaw = Number(col(r, 'Qtde') ?? 0)
       const quantidade = qtdeRaw < 0 ? 0 : qtdeRaw
-      const validade = excelSerialToISO(r['validade'] ?? r['ValidadeNova']) ?? '9999-12-31'
+      const validade = excelSerialToISO(col(r, 'validade') || col(r, 'ValidadeNova')) ?? '9999-12-31'
       const endereco = fmtEnd(rua, predio, nivel, apto)
       const isPicking = nivel === '0'
 
@@ -72,12 +85,16 @@ export default function WmsPage() {
         .limit(1)
 
       if (existentes && existentes.length > 0) {
-        const { error } = await supabase.from('itens').update({ validade, quantidade, descricao }).eq('id', existentes[0].id)
+        // Descrição vazia na planilha nunca apaga a descrição existente
+        const { error } = await supabase.from('itens').update({
+          validade, quantidade,
+          ...(descricao ? { descricao } : {}),
+        }).eq('id', existentes[0].id)
         if (error) erros++
         else atualizados++
       } else {
         const { error } = await supabase.from('itens').insert({
-          sku, descricao, lote: 'S/L',
+          sku, descricao: descricao || '(sem descrição)', lote: 'S/L',
           endereco_frac: isPicking ? endereco : '',
           endereco_gran: isPicking ? '' : endereco,
           quantidade, validade, status: 'ativo', user_id: user!.id,
