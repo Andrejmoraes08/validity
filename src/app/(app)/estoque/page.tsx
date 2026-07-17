@@ -19,6 +19,8 @@ export default function EstoquePage() {
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('ativo')
   const [zoneFilter, setZoneFilter] = useState('')
+  const [filtroFrac, setFiltroFrac] = useState('')
+  const [filtroGran, setFiltroGran] = useState('')
   const [showForm, setShowForm] = useState(false)
   const [editItem, setEditItem] = useState<Item | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Item | null>(null)
@@ -49,16 +51,19 @@ export default function EstoquePage() {
     return itens.filter(i => {
       if (statusFilter !== 'todos' && i.status !== statusFilter) return false
       if (zoneFilter && getZone(i.validade).name !== zoneFilter) return false
+      if (filtroFrac && !(i.endereco_frac ?? '').toLowerCase().includes(filtroFrac.toLowerCase())) return false
+      if (filtroGran && !(i.endereco_gran ?? '').toLowerCase().includes(filtroGran.toLowerCase())) return false
       if (search) {
         const q = search.toLowerCase()
         if (!i.sku.toLowerCase().includes(q) &&
             !i.descricao.toLowerCase().includes(q) &&
             !i.lote.toLowerCase().includes(q) &&
-            !i.endereco_frac.toLowerCase().includes(q)) return false
+            !(i.endereco_frac ?? '').toLowerCase().includes(q) &&
+            !(i.endereco_gran ?? '').toLowerCase().includes(q)) return false
       }
       return true
     })
-  }, [itens, statusFilter, zoneFilter, search])
+  }, [itens, statusFilter, zoneFilter, search, filtroFrac, filtroGran])
 
   const handleSave = async (data: Partial<Item>) => {
     if (editItem) {
@@ -133,8 +138,22 @@ export default function EstoquePage() {
           <option value="verde">Seguro (90-180d)</option>
           <option value="azul">OK (&gt;180d)</option>
         </select>
-        {(search || zoneFilter || statusFilter !== 'ativo') && (
-          <Button variant="ghost" size="sm" onClick={() => { setSearch(''); setZoneFilter(''); setStatusFilter('ativo') }}>
+        <input
+          type="text"
+          placeholder="End. Fracionado (ex: 1 - 2 - 0)"
+          value={filtroFrac}
+          onChange={e => setFiltroFrac(e.target.value)}
+          className="border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono w-[190px] focus:outline-none focus:border-blue-500"
+        />
+        <input
+          type="text"
+          placeholder="End. Grandeza (ex: 1 - 2 - 1)"
+          value={filtroGran}
+          onChange={e => setFiltroGran(e.target.value)}
+          className="border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono w-[190px] focus:outline-none focus:border-blue-500"
+        />
+        {(search || zoneFilter || statusFilter !== 'ativo' || filtroFrac || filtroGran) && (
+          <Button variant="ghost" size="sm" onClick={() => { setSearch(''); setZoneFilter(''); setStatusFilter('ativo'); setFiltroFrac(''); setFiltroGran('') }}>
             Limpar
           </Button>
         )}
