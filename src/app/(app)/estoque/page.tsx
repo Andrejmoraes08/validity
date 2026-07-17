@@ -12,6 +12,17 @@ import type { Item } from '@/lib/types'
 
 type StatusFilter = 'todos' | 'ativo' | 'segregado' | 'bloqueado' | 'baixado'
 
+// Ordena endereços por segmento numérico: "1 - 2 - 0" antes de "1 - 10 - 0"
+function cmpEndereco(a: string, b: string): number {
+  const pa = a.split('-').map(s => parseInt(s.trim(), 10) || 0)
+  const pb = b.split('-').map(s => parseInt(s.trim(), 10) || 0)
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const diff = (pa[i] ?? 0) - (pb[i] ?? 0)
+    if (diff !== 0) return diff
+  }
+  return 0
+}
+
 export default function EstoquePage() {
   const { itens, loading, addItem, updateItem, deleteItem } = useItens()
   const { toast } = useToast()
@@ -47,12 +58,21 @@ export default function EstoquePage() {
     return m
   }, [itens])
 
+  const enderecosFrac = useMemo(() =>
+    Array.from(new Set(itens.map(i => i.endereco_frac).filter(Boolean))).sort(cmpEndereco),
+    [itens]
+  )
+  const enderecosGran = useMemo(() =>
+    Array.from(new Set(itens.map(i => i.endereco_gran).filter(Boolean))).sort(cmpEndereco),
+    [itens]
+  )
+
   const filtered = useMemo(() => {
     return itens.filter(i => {
       if (statusFilter !== 'todos' && i.status !== statusFilter) return false
       if (zoneFilter && getZone(i.validade).name !== zoneFilter) return false
-      if (filtroFrac && !(i.endereco_frac ?? '').toLowerCase().includes(filtroFrac.toLowerCase())) return false
-      if (filtroGran && !(i.endereco_gran ?? '').toLowerCase().includes(filtroGran.toLowerCase())) return false
+      if (filtroFrac && i.endereco_frac !== filtroFrac) return false
+      if (filtroGran && i.endereco_gran !== filtroGran) return false
       if (search) {
         const q = search.toLowerCase()
         if (!i.sku.toLowerCase().includes(q) &&
@@ -138,20 +158,26 @@ export default function EstoquePage() {
           <option value="verde">Seguro (90-180d)</option>
           <option value="azul">OK (&gt;180d)</option>
         </select>
-        <input
-          type="text"
-          placeholder="End. Fracionado (ex: 1 - 2 - 0)"
+        <select
           value={filtroFrac}
           onChange={e => setFiltroFrac(e.target.value)}
-          className="border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono w-[190px] focus:outline-none focus:border-blue-500"
-        />
-        <input
-          type="text"
-          placeholder="End. Grandeza (ex: 1 - 2 - 1)"
+          className="border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-blue-500"
+        >
+          <option value="">End. Fracionado — todos</option>
+          {enderecosFrac.map(end => (
+            <option key={end} value={end}>{end}</option>
+          ))}
+        </select>
+        <select
           value={filtroGran}
           onChange={e => setFiltroGran(e.target.value)}
-          className="border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono w-[190px] focus:outline-none focus:border-blue-500"
-        />
+          className="border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-blue-500"
+        >
+          <option value="">End. Grandeza — todos</option>
+          {enderecosGran.map(end => (
+            <option key={end} value={end}>{end}</option>
+          ))}
+        </select>
         {(search || zoneFilter || statusFilter !== 'ativo' || filtroFrac || filtroGran) && (
           <Button variant="ghost" size="sm" onClick={() => { setSearch(''); setZoneFilter(''); setStatusFilter('ativo'); setFiltroFrac(''); setFiltroGran('') }}>
             Limpar
