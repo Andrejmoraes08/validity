@@ -12,6 +12,7 @@ export default function WmsPage() {
 
   const [status, setStatus] = useState<{ atualizados: number; criados: number; erros: number } | null>(null)
   const [loading, setLoading] = useState(false)
+  const [progresso, setProgresso] = useState<{ atual: number; total: number } | null>(null)
 
   function excelSerialToISO(v: unknown): string | null {
     if (!v || v === '') return null
@@ -41,8 +42,12 @@ export default function WmsPage() {
     const { data: { user } } = await supabase.auth.getUser()
 
     let atualizados = 0, criados = 0, erros = 0
+    let linha = 0
+    setProgresso({ atual: 0, total: rows.length })
 
     for (const r of rows) {
+      linha++
+      setProgresso({ atual: linha, total: rows.length })
       const sku = String(r['idProduto'] ?? '').trim()
       const descricao = String(r['Descricao'] ?? '').trim()
       const rua = String(r['Rua'] ?? '').trim()
@@ -87,6 +92,7 @@ export default function WmsPage() {
     })
 
     setStatus({ atualizados, criados, erros })
+    setProgresso(null)
     setLoading(false)
     fetchItens()
     toast(`Importação concluída: ${atualizados} atualizados, ${criados} criados`)
@@ -119,6 +125,25 @@ export default function WmsPage() {
           </div>
 
           <input ref={valRef} type="file" accept=".xls,.xlsx" onChange={processarValidades} className="hidden" />
+
+          {/* Progresso da importação */}
+          {loading && progresso && progresso.total > 0 && (
+            <div className="flex flex-col gap-2 rounded-lg border border-blue-100 bg-blue-50 p-4">
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-bold text-blue-700">Importando…</span>
+                <span className="font-mono font-bold text-blue-600">
+                  {progresso.atual} / {progresso.total} linhas · {Math.round((progresso.atual / progresso.total) * 100)}%
+                </span>
+              </div>
+              <div className="w-full bg-white rounded-full h-3 overflow-hidden border border-blue-100">
+                <div
+                  className="bg-blue-600 h-full rounded-full transition-all duration-150"
+                  style={{ width: `${(progresso.atual / progresso.total) * 100}%` }}
+                />
+              </div>
+              <p className="text-[11px] text-blue-400">Não feche esta tela durante a importação</p>
+            </div>
+          )}
 
           <div className="flex items-center gap-3 flex-wrap">
             <Button variant="primary" onClick={() => valRef.current?.click()} disabled={loading}>
