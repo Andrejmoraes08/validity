@@ -6,7 +6,7 @@ import { ZoneCell } from '@/components/ui/ZoneCell'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { getZone, diasParaVencer } from '@/lib/zones'
-import { fmtDateTime } from '@/lib/utils'
+import { fmtDateTime, normalizarEndereco } from '@/lib/utils'
 import { supabase } from '@/lib/supabase'
 import { useToast } from '@/components/layout/Toast'
 import type { Item, ZoneName } from '@/lib/types'
@@ -195,9 +195,12 @@ export default function InspecaoPage() {
   // Popup mínimo confirmado → segue para inspeção complementar
   const handleContinuarNovo = () => {
     if (!novoItem.sku || !novoItem.endereco) return
-    if (produtoExistente) {
-      setNovoItem(p => ({ ...p, descricao: produtoExistente.descricao }))
-    }
+    const enderecoNorm = normalizarEndereco(novoItem.endereco)
+    setNovoItem(p => ({
+      ...p,
+      endereco: enderecoNorm,
+      ...(produtoExistente ? { descricao: produtoExistente.descricao } : {}),
+    }))
     setShowAddModal(false)
     setFaseComplemento(true)
   }

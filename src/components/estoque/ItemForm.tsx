@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
+import { normalizarEndereco } from '@/lib/utils'
 import type { Item } from '@/lib/types'
 
 interface ItemFormProps {
@@ -58,7 +59,12 @@ export function ItemForm({ open, onClose, onSave, initial, title }: ItemFormProp
   const handleSave = async () => {
     if (!form.sku || !form.descricao || !form.endereco_frac || !form.validade) return
     setSaving(true)
-    await onSave({ ...form, lote: (form.lote ?? '').trim() || 'S/L' })
+    await onSave({
+      ...form,
+      lote: (form.lote ?? '').trim() || 'S/L',
+      endereco_frac: normalizarEndereco(form.endereco_frac ?? ''),
+      endereco_gran: normalizarEndereco(form.endereco_gran ?? ''),
+    })
     setSaving(false)
     onClose()
   }

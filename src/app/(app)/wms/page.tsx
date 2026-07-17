@@ -64,10 +64,11 @@ export default function WmsPage() {
     return null
   }
 
+  // Monta endereço no padrão "R - P - N - A" — segmento vazio vira 0
   function fmtEnd(rua: unknown, pred: unknown, niv: unknown, apto: unknown) {
     const partes = [rua, pred, niv, apto].map(v => String(v ?? '').trim())
     if (partes.every(p => !p)) return ''
-    return partes.join(' - ')
+    return partes.map(p => p || '0').join(' - ')
   }
 
   // Normaliza nome de coluna: minúsculas, sem acentos, sem espaços
@@ -113,7 +114,7 @@ export default function WmsPage() {
       const validadeRaw = col(r, 'validade') || col(r, 'ValidadeNova')
       const validadeISO = excelSerialToISO(validadeRaw)
       const endereco = fmtEnd(rua, predio, nivel, apto)
-      const isPicking = nivel === '0'
+      const isPicking = (nivel || '0') === '0'
 
       if (!sku || !endereco) { ignoradas++; continue }
 
