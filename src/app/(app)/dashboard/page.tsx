@@ -12,6 +12,17 @@ export default function DashboardPage() {
   const ativos = useMemo(() => itens.filter(i => i.status === 'ativo'), [itens])
   const bloqueados = useMemo(() => itens.filter(i => i.status === 'bloqueado'), [itens])
 
+  const skusUnicos = useMemo(() => new Set(ativos.map(i => i.sku)).size, [ativos])
+  const enderecosAtivos = useMemo(() =>
+    ativos.reduce((n, i) => n + (i.endereco_frac ? 1 : 0) + (i.endereco_gran ? 1 : 0), 0),
+    [ativos]
+  )
+  const porStatus = useMemo(() => {
+    const c: Record<string, number> = { ativo: 0, segregado: 0, bloqueado: 0, baixado: 0 }
+    for (const i of itens) c[i.status] = (c[i.status] ?? 0) + 1
+    return c
+  }, [itens])
+
   const vencidos = useMemo(() => ativos.filter(i => diasParaVencer(i.validade) < 0).length, [ativos])
   const criticos = useMemo(() => ativos.filter(i => { const d = diasParaVencer(i.validade); return d >= 0 && d < 30 }).length, [ativos])
   const atencao = useMemo(() => ativos.filter(i => { const d = diasParaVencer(i.validade); return d >= 30 && d < 91 }).length, [ativos])
@@ -36,13 +47,22 @@ export default function DashboardPage() {
         <p className="text-sm text-gray-400">Visão geral do estoque — {fmtDate(new Date().toISOString().split('T')[0])}</p>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
-        <KpiCard label="Total Ativos" value={ativos.length} color="#1f6feb" />
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+        <KpiCard label="SKUs Únicos" value={skusUnicos} color="#1f6feb" />
+        <KpiCard label="Endereços Ativos" value={enderecosAtivos} color="#0e7490" />
         <KpiCard label="Vencidos" value={vencidos} color="#1a1d24" />
         <KpiCard label="Críticos (<30d)" value={criticos} color="#dc2626" />
         <KpiCard label="Atenção (30-90d)" value={atencao} color="#d4a017" />
         <KpiCard label="Bloqueados" value={bloqueados.length} color="#7c3aed" />
       </div>
+
+      <p className="text-xs text-gray-400 -mt-3">
+        Registros no sistema: <strong className="text-gray-600 font-mono">{itens.length}</strong> —{' '}
+        <span className="font-mono">{porStatus.ativo}</span> ativos ·{' '}
+        <span className="font-mono">{porStatus.segregado}</span> segregados ·{' '}
+        <span className="font-mono">{porStatus.bloqueado}</span> bloqueados ·{' '}
+        <span className="font-mono">{porStatus.baixado}</span> baixados
+      </p>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Distribuição por zona */}

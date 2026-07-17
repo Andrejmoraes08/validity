@@ -10,7 +10,7 @@ export default function WmsPage() {
   const { toast } = useToast()
   const valRef = useRef<HTMLInputElement>(null)
 
-  const [status, setStatus] = useState<{ atualizados: number; criados: number; erros: number } | null>(null)
+  const [status, setStatus] = useState<{ atualizados: number; criados: number; erros: number; ignoradas: number; total: number } | null>(null)
   const [loading, setLoading] = useState(false)
   const [progresso, setProgresso] = useState<{ atual: number; total: number } | null>(null)
 
@@ -27,7 +27,9 @@ export default function WmsPage() {
   }
 
   function fmtEnd(rua: unknown, pred: unknown, niv: unknown, apto: unknown) {
-    return [rua, pred, niv, apto].map(v => String(v ?? '').trim()).join(' - ')
+    const partes = [rua, pred, niv, apto].map(v => String(v ?? '').trim())
+    if (partes.every(p => !p)) return ''
+    return partes.join(' - ')
   }
 
   const processarValidades = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -41,7 +43,7 @@ export default function WmsPage() {
     const rows = utils.sheet_to_json<Record<string, unknown>>(read(buf).Sheets[read(buf).SheetNames[0]], { defval: '' })
     const { data: { user } } = await supabase.auth.getUser()
 
-    let atualizados = 0, criados = 0, erros = 0
+    let atualizados = 0, criados = 0, erros = 0, ignoradas = 0
     let linha = 0
     setProgresso({ atual: 0, total: rows.length })
 
@@ -60,7 +62,7 @@ export default function WmsPage() {
       const endereco = fmtEnd(rua, predio, nivel, apto)
       const isPicking = nivel === '0'
 
-      if (!sku || !endereco) continue
+      if (!sku || !endereco) { ignoradas++; continue }
 
       const { data: existentes } = await supabase
         .from('itens')
@@ -86,12 +88,12 @@ export default function WmsPage() {
     }
 
     await supabase.from('historico').insert({
-      descricao: `Importação de endereços: ${atualizados} atualizados, ${criados} criados, ${erros} erros`,
+      descricao: `Importação de endereços: ${rows.length} linhas — ${atualizados} atualizados, ${criados} criados, ${ignoradas} ignoradas, ${erros} erros`,
       responsavel: user!.email ?? 'sistema',
       user_id: user!.id,
     })
 
-    setStatus({ atualizados, criados, erros })
+    setStatus({ atualizados, criados, erros, ignoradas, total: rows.length })
     setProgresso(null)
     setLoading(false)
     fetchItens()
@@ -151,8 +153,10 @@ export default function WmsPage() {
             </Button>
             {status && (
               <div className="flex gap-2 flex-wrap text-xs">
+                <span className="bg-gray-100 text-gray-700 px-2 py-1 rounded font-semibold">{status.total} linhas</span>
                 <span className="bg-blue-50 text-blue-700 px-2 py-1 rounded font-semibold">✓ {status.atualizados} atualizados</span>
                 <span className="bg-green-50 text-green-700 px-2 py-1 rounded font-semibold">+ {status.criados} criados</span>
+                {status.ignoradas > 0 && <span className="bg-amber-50 text-amber-700 px-2 py-1 rounded font-semibold">⊘ {status.ignoradas} ignoradas</span>}
                 {status.erros > 0 && <span className="bg-red-50 text-red-700 px-2 py-1 rounded font-semibold">✕ {status.erros} erros</span>}
               </div>
             )}
