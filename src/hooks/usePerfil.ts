@@ -1,5 +1,5 @@
 'use client'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import type { User } from '@supabase/supabase-js'
 
@@ -31,9 +31,17 @@ const TABS_PADRAO_OPERADOR = ['dashboard', 'estoque', 'inspecao', 'wms']
 export function usePerfil(user: User | null) {
   const [perfil, setPerfil] = useState<Perfil | null>(null)
   const [loading, setLoading] = useState(true)
+  const perfilRef = useRef<Perfil | null>(null)
+
+  const aplicarPerfil = (p: Perfil | null) => {
+    perfilRef.current = p
+    setPerfil(p)
+  }
 
   const fetchOrCreate = useCallback(async (u: User) => {
-    setLoading(true)
+    // Perfil deste usuário já carregado → atualização silenciosa, sem tela de loading
+    const jaCarregado = perfilRef.current?.user_id === u.id
+    if (!jaCarregado) setLoading(true)
 
     // 1. Tenta buscar o perfil existente
     const { data: existing } = await supabase
@@ -43,7 +51,7 @@ export function usePerfil(user: User | null) {
       .maybeSingle()
 
     if (existing) {
-      setPerfil(existing as Perfil)
+      aplicarPerfil(existing as Perfil)
       setLoading(false)
       return
     }
@@ -66,7 +74,7 @@ export function usePerfil(user: User | null) {
       .maybeSingle()
 
     if (novo) {
-      setPerfil(novo as Perfil)
+      aplicarPerfil(novo as Perfil)
     } else if (insertError) {
       // Race condition: outro processo já inseriu — busca novamente
       const { data: retry } = await supabase
@@ -74,7 +82,7 @@ export function usePerfil(user: User | null) {
         .select('*')
         .eq('user_id', u.id)
         .maybeSingle()
-      if (retry) setPerfil(retry as Perfil)
+      if (retry) aplicarPerfil(retry as Perfil)
     }
 
     setLoading(false)
@@ -84,7 +92,7 @@ export function usePerfil(user: User | null) {
     if (user) {
       fetchOrCreate(user)
     } else {
-      setPerfil(null)
+      aplicarPerfil(null)
       setLoading(false)
     }
   }, [user, fetchOrCreate])

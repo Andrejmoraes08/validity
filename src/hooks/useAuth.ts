@@ -8,12 +8,17 @@ export function useAuth() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    // Mantém a MESMA referência de objeto quando o usuário não mudou —
+    // eventos de foco/refresh de token não devem re-renderizar o app inteiro
+    const aplicar = (next: User | null) => {
+      setUser(prev => (prev?.id === next?.id ? prev : next))
+    }
     supabase.auth.getSession().then(({ data }) => {
-      setUser(data.session?.user ?? null)
+      aplicar(data.session?.user ?? null)
       setLoading(false)
     })
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, session) => {
-      setUser(session?.user ?? null)
+      aplicar(session?.user ?? null)
     })
     return () => subscription.unsubscribe()
   }, [])
