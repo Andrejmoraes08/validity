@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useItens } from '@/hooks/useItens'
-import { useInspecao, type EntradaFila, type InspecaoAberta } from '@/hooks/useInspecao'
+import { useInspecao, type EntradaFila, type InspecaoAberta, type TipoEndereco } from '@/hooks/useInspecao'
 import { ZoneCell } from '@/components/ui/ZoneCell'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
@@ -68,6 +68,7 @@ export default function InspecaoPage() {
   // Filtros da tela inicial
   const [ruasSelecionadas, setRuasSelecionadas] = useState<string[]>([])
   const [zonasSelecionadas, setZonasSelecionadas] = useState<ZoneName[]>([])
+  const [tiposSelecionados, setTiposSelecionados] = useState<TipoEndereco[]>([])
   const [incluirSaldoZero, setIncluirSaldoZero] = useState(false)
 
   // Monta fila expandida: cada endereço (frac e gran) é uma entrada independente
@@ -104,6 +105,7 @@ export default function InspecaoPage() {
   const entradasFiltradas = useMemo(() => {
     return todasEntradas.filter(e => {
       if (!incluirSaldoZero && e.item.quantidade === 0) return false
+      if (tiposSelecionados.length > 0 && !tiposSelecionados.includes(e.tipo)) return false
       if (ruasSelecionadas.length > 0) {
         if (!ruasSelecionadas.includes(extrairRua(e.endereco))) return false
       }
@@ -112,13 +114,16 @@ export default function InspecaoPage() {
       }
       return true
     })
-  }, [todasEntradas, ruasSelecionadas, zonasSelecionadas, incluirSaldoZero])
+  }, [todasEntradas, ruasSelecionadas, zonasSelecionadas, tiposSelecionados, incluirSaldoZero])
 
   const toggleRua = (rua: string) =>
     setRuasSelecionadas(prev => prev.includes(rua) ? prev.filter(r => r !== rua) : [...prev, rua])
 
   const toggleZona = (zona: ZoneName) =>
     setZonasSelecionadas(prev => prev.includes(zona) ? prev.filter(z => z !== zona) : [...prev, zona])
+
+  const toggleTipo = (tipo: TipoEndereco) =>
+    setTiposSelecionados(prev => prev.includes(tipo) ? prev.filter(t => t !== tipo) : [...prev, tipo])
 
   const entradaAtual = state.phase === 'active' ? state.fila[state.atual] : null
   const itemAtual = entradaAtual?.item ?? null
@@ -434,6 +439,43 @@ export default function InspecaoPage() {
                 }
               >
                 {z.label}
+                <span
+                  className="text-[11px] font-mono px-1.5 py-0.5 rounded"
+                  style={{ background: ativo ? 'rgba(255,255,255,.25)' : 'rgba(0,0,0,.08)' }}
+                >
+                  {count}
+                </span>
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* Filtro por Tipo de Endereço */}
+      <div className="bg-white rounded-xl border border-gray-100 p-5 shadow-sm flex flex-col gap-3">
+        <div className="flex items-center justify-between">
+          <span className="text-sm font-bold text-gray-700">Filtrar por Tipo de Endereço</span>
+          {tiposSelecionados.length > 0 && (
+            <button onClick={() => setTiposSelecionados([])} className="text-xs text-blue-500 hover:text-blue-700">
+              Limpar
+            </button>
+          )}
+        </div>
+        <div className="flex gap-2">
+          {([['frac', 'Fracionado', '#1d4ed8', '#eff6ff'], ['gran', 'Grandeza', '#7e22ce', '#faf5ff']] as const).map(([tipo, label, cor, bg]) => {
+            const ativo = tiposSelecionados.includes(tipo)
+            const count = todasEntradas.filter(e => e.tipo === tipo && (incluirSaldoZero || e.item.quantidade > 0)).length
+            return (
+              <button
+                key={tipo}
+                onClick={() => toggleTipo(tipo)}
+                className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold border transition-colors"
+                style={ativo
+                  ? { background: cor, color: '#fff', borderColor: cor }
+                  : { background: bg, color: cor, borderColor: cor + '40' }
+                }
+              >
+                {label}
                 <span
                   className="text-[11px] font-mono px-1.5 py-0.5 rounded"
                   style={{ background: ativo ? 'rgba(255,255,255,.25)' : 'rgba(0,0,0,.08)' }}
