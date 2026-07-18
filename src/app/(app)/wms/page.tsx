@@ -64,11 +64,11 @@ export default function WmsPage() {
     return null
   }
 
-  // Monta endereço no padrão "R - P - N - A" — segmento vazio vira 0
+  // Monta endereço no padrão "R - P - N - A" — segmento vazio vira 0, sem zeros à esquerda
   function fmtEnd(rua: unknown, pred: unknown, niv: unknown, apto: unknown) {
     const partes = [rua, pred, niv, apto].map(v => String(v ?? '').trim())
     if (partes.every(p => !p)) return ''
-    return partes.map(p => p || '0').join(' - ')
+    return partes.map(p => (p || '0').replace(/^0+(?=\d)/, '')).join(' - ')
   }
 
   // Normaliza nome de coluna: minúsculas, sem acentos, sem espaços

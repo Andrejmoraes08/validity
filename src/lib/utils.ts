@@ -19,11 +19,13 @@ export function clsx(...classes: (string | undefined | null | false)[]): string 
 }
 
 // Normaliza endereço para o padrão "Rua - Prédio - Nível - Apto" (4 segmentos; vazio vira 0)
-// "6 - 53 - 4 -" → "6 - 53 - 4 - 0" · "6-53-4" → "6 - 53 - 4 - 0"
+// "6 - 53 - 4 -" → "6 - 53 - 4 - 0" · "6-53-4" → "6 - 53 - 4 - 0" · "6 - 053 - 4 - 0" → "6 - 53 - 4 - 0"
 export function normalizarEndereco(e: string): string {
   if (!e || !e.trim()) return ''
   const partes = e.split('-').map(p => p.trim())
   if (partes.every(p => !p)) return ''
   while (partes.length < 4) partes.push('')
-  return partes.slice(0, 4).map(p => p || '0').join(' - ')
+  return partes.slice(0, 4)
+    .map(p => (p || '0').replace(/^0+(?=\d)/, ''))
+    .join(' - ')
 }
