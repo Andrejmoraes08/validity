@@ -276,7 +276,7 @@ export function useInspecao() {
       }
     }
 
-    const endLabel = tipo === 'frac' ? 'Frac.' : 'Gran.'
+    const endLabel = tipo === 'frac' ? 'Picking' : 'Pulmão'
     const qtdInfo = !ok && quantidadeSegregada ? ` | Qtd: ${quantidadeSegregada}` : ''
     const saldoInfo = quantidadeEncontrada !== undefined ? ` | Saldo registrado: ${quantidadeEncontrada}` : ''
     const descricao = (validadeAlterada
@@ -320,7 +320,7 @@ export function useInspecao() {
       observacao_inspecao: obs || null,
     }).eq('id', item.id)
 
-    const endLabel = tipo === 'frac' ? 'Frac.' : 'Gran.'
+    const endLabel = tipo === 'frac' ? 'Picking' : 'Pulmão'
     await supabase.from('historico').insert({
       descricao: `Baixa de endereço ${endLabel}: ${item.sku} — ${entrada.endereco} (saldo zerado na inspeção #${state.numero})`,
       responsavel: state.responsavel,

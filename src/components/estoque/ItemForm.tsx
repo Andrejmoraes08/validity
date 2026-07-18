@@ -85,11 +85,11 @@ export function ItemForm({ open, onClose, onSave, initial, title }: ItemFormProp
           <input type="text" value={form.descricao ?? ''} onChange={set('descricao')} className={inputClass} />
         </div>
         <div className="flex flex-col gap-1">
-          <label className={labelClass}>Endereço Fracionado <span className="text-red-500">*</span></label>
+          <label className={labelClass}>Endereço de Picking <span className="text-red-500">*</span></label>
           <input type="text" value={form.endereco_frac ?? ''} onChange={set('endereco_frac')} className={inputClass} />
         </div>
         <div className="flex flex-col gap-1">
-          <label className={labelClass}>Endereço Grandeza</label>
+          <label className={labelClass}>Endereço de Pulmão</label>
           <input type="text" value={form.endereco_gran ?? ''} onChange={set('endereco_gran')} className={inputClass} />
         </div>
         <div className="flex flex-col gap-1">

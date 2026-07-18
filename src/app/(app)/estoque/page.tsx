@@ -144,8 +144,8 @@ export default function EstoquePage() {
           className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
         >
           <option value="">Todos os endereços</option>
-          <option value="frac">Endereços Fracionados</option>
-          <option value="gran">Endereços Grandeza</option>
+          <option value="frac">Endereços de Picking</option>
+          <option value="gran">Endereços de Pulmão</option>
         </select>
         {(search || zoneFilter || statusFilter !== 'ativo' || filtroEndereco) && (
           <Button variant="ghost" size="sm" onClick={() => { setSearch(''); setZoneFilter(''); setStatusFilter('ativo'); setFiltroEndereco('') }}>
@@ -166,7 +166,7 @@ export default function EstoquePage() {
           <table className="w-full text-xs">
             <thead className="bg-gray-50 border-b border-gray-100">
               <tr>
-                {['SKU', 'Descrição', 'Lote', 'End. Frac.', 'End. Gran.', 'Qtd', 'Validade', 'Status', 'Ações'].map(h => (
+                {['SKU', 'Descrição', 'Lote', 'End. Picking', 'End. Pulmão', 'Qtd', 'Validade', 'Status', 'Ações'].map(h => (
                   <th key={h} className="px-4 py-3 text-left text-gray-500 font-semibold text-[11px] uppercase tracking-wide whitespace-nowrap">{h}</th>
                 ))}
               </tr>

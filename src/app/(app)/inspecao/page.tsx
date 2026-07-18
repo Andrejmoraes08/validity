@@ -408,7 +408,7 @@ export default function InspecaoPage() {
           <div className="text-2xl font-extrabold font-mono text-blue-600">
             {entradasFiltradas.filter(e => e.tipo === 'frac').length}
           </div>
-          <div className="text-xs text-gray-400 mt-1">Fracionado</div>
+          <div className="text-xs text-gray-400 mt-1">Picking</div>
         </div>
         <div className="bg-white rounded-xl border border-red-50 p-4 shadow-sm">
           <div className="text-2xl font-extrabold font-mono text-red-600">
@@ -497,7 +497,7 @@ export default function InspecaoPage() {
           )}
         </div>
         <div className="flex gap-2">
-          {([['frac', 'Fracionado', '#1d4ed8', '#eff6ff'], ['gran', 'Grandeza', '#7e22ce', '#faf5ff']] as const).map(([tipo, label, cor, bg]) => {
+          {([['frac', 'Picking', '#1d4ed8', '#eff6ff'], ['gran', 'Pulmão', '#7e22ce', '#faf5ff']] as const).map(([tipo, label, cor, bg]) => {
             const ativo = tiposSelecionados.includes(tipo)
             const count = todasEntradas.filter(e => e.tipo === tipo && (incluirSaldoZero || e.item.quantidade > 0)).length
             return (
@@ -645,7 +645,7 @@ export default function InspecaoPage() {
                     style={r.entrada.tipo === 'frac'
                       ? { background: '#eff6ff', color: '#1d4ed8' }
                       : { background: '#faf5ff', color: '#7e22ce' }}>
-                    {r.entrada.tipo === 'frac' ? 'Frac.' : 'Gran.'}
+                    {r.entrada.tipo === 'frac' ? 'Picking' : 'Pulmão'}
                   </span>
                 </td>
                 <td className="px-4 py-3 font-mono font-bold text-gray-800">{r.entrada.item.sku}</td>
@@ -687,7 +687,7 @@ export default function InspecaoPage() {
             style={novoItem.tipo === 'frac'
               ? { background: '#eff6ff', color: '#1d4ed8' }
               : { background: '#faf5ff', color: '#7e22ce' }}>
-            End. {novoItem.tipo === 'frac' ? 'Fracionado' : 'Grandeza'}
+            End. {novoItem.tipo === 'frac' ? 'Picking' : 'Pulmão'}
           </span>
           <span className="font-mono text-sm font-bold text-gray-800">{novoItem.endereco}</span>
           <span className="ml-auto font-mono text-lg font-extrabold text-gray-900">{novoItem.sku}</span>
@@ -757,7 +757,7 @@ export default function InspecaoPage() {
   if (!entradaAtual || !itemAtual || !zonaAtual) return null
 
   const saldoZero = itemAtual.quantidade === 0
-  const tipoLabel = entradaAtual.tipo === 'frac' ? 'Fracionado' : 'Grandeza'
+  const tipoLabel = entradaAtual.tipo === 'frac' ? 'Picking' : 'Pulmão'
   const enderecoAtual = entradaAtual.endereco
 
   return (
@@ -828,11 +828,11 @@ export default function InspecaoPage() {
         {/* Info do item */}
         <div className="grid grid-cols-2 gap-3 text-xs">
           <div className="bg-gray-50 rounded-lg p-3">
-            <div className="text-gray-400">End. Fracionado</div>
+            <div className="text-gray-400">End. Picking</div>
             <div className="font-mono font-bold text-gray-800 mt-0.5">{itemAtual.endereco_frac || '—'}</div>
           </div>
           <div className="bg-gray-50 rounded-lg p-3">
-            <div className="text-gray-400">End. Grandeza</div>
+            <div className="text-gray-400">End. Pulmão</div>
             <div className="font-mono font-bold text-gray-800 mt-0.5">{itemAtual.endereco_gran || '—'}</div>
           </div>
           <div className="bg-gray-50 rounded-lg p-3">
@@ -1226,7 +1226,7 @@ export default function InspecaoPage() {
                   style={novoItem.tipo === t
                     ? { background: '#1f6feb', color: '#fff', borderColor: '#1f6feb' }
                     : { background: '#f5f6f8', color: '#5a6070', borderColor: '#e1e4ea' }}>
-                  {t === 'frac' ? 'Fracionado' : 'Grandeza'}
+                  {t === 'frac' ? 'Picking' : 'Pulmão'}
                 </button>
               ))}
             </div>
