@@ -174,14 +174,14 @@ export default function InspecaoPage() {
     setValidadeConfirmada(false)
   }
 
-  // Máscara de endereço: digita só números, aplica "X - XX - X - X" (rua, prédio, nível, apto)
+  // Máscara de endereço: digita só números, aplica "X - XX - X - XX" (rua, prédio, nível, apto)
   const handleEnderecoTexto = (raw: string) => {
-    const digits = raw.replace(/\D/g, '').slice(0, 5)
+    const digits = raw.replace(/\D/g, '').slice(0, 6)
     const segs: string[] = []
     if (digits.length > 0) segs.push(digits.slice(0, 1))
     if (digits.length > 1) segs.push(digits.slice(1, 3))
     if (digits.length > 3) segs.push(digits.slice(3, 4))
-    if (digits.length > 4) segs.push(digits.slice(4, 5))
+    if (digits.length > 4) segs.push(digits.slice(4, 6))
     setNovoItem(p => ({ ...p, endereco: segs.join(' - ') }))
   }
 
@@ -1192,8 +1192,8 @@ export default function InspecaoPage() {
             <label className="text-xs font-semibold text-gray-600">Endereço *</label>
             <input type="text" inputMode="numeric" value={novoItem.endereco}
               onChange={e => handleEnderecoTexto(e.target.value)}
-              placeholder="Digite os números: ex 65340"
-              maxLength={14}
+              placeholder="Digite os números: ex 653410"
+              maxLength={15}
               autoFocus
               className="border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-blue-500" />
             <p className="text-[11px] text-gray-400">
