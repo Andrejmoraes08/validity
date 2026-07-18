@@ -348,7 +348,24 @@ export function useInspecao() {
     if (state.inspecaoId) await persistir(state.inspecaoId, state.atual, novosResultados, false)
   }
 
+  // Encerramento antecipado: conclui a inspeção salvando o que já foi coletado
+  const encerrar = async () => {
+    if (state.inspecaoId) {
+      const { data: { user } } = await supabase.auth.getUser()
+      await supabase.from('inspecoes').update({
+        status: 'concluida',
+        finalizada_em: new Date().toISOString(),
+      }).eq('id', state.inspecaoId)
+      await supabase.from('historico').insert({
+        descricao: `Inspeção #${state.numero} encerrada antecipadamente — ${state.resultados.length} de ${state.fila.length} endereços inspecionados`,
+        responsavel: state.responsavel,
+        user_id: user!.id,
+      })
+    }
+    setState(s => ({ ...s, phase: 'done' }))
+  }
+
   const reiniciar = () => setState(initial)
 
-  return { state, iniciar, retomar, buscarAberta, cancelarAberta, confirmar, baixarEndereco, reiniciar, registrarExtra }
+  return { state, iniciar, retomar, buscarAberta, cancelarAberta, confirmar, baixarEndereco, encerrar, reiniciar, registrarExtra }
 }

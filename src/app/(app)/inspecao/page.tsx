@@ -32,7 +32,7 @@ const novoItemVazio = {
 
 export default function InspecaoPage() {
   const { itens, loading, addItem } = useItens()
-  const { state, iniciar, retomar, buscarAberta, cancelarAberta, confirmar, baixarEndereco, reiniciar, registrarExtra } = useInspecao()
+  const { state, iniciar, retomar, buscarAberta, cancelarAberta, confirmar, baixarEndereco, encerrar, reiniciar, registrarExtra } = useInspecao()
   const { toast } = useToast()
 
   // Inspeção aberta no banco (para retomar ou avisar antes de abrir nova)
@@ -60,6 +60,9 @@ export default function InspecaoPage() {
   // Endereço vazio (saldo zero) — registrar produto encontrado
   const [mostrarEncontrado, setMostrarEncontrado] = useState(false)
   const [qtdEncontrada, setQtdEncontrada] = useState('')
+
+  // Encerramento antecipado
+  const [confirmEncerrar, setConfirmEncerrar] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
   // Novo endereço durante inspeção ativa: popup mínimo → inspeção complementar
@@ -137,10 +140,6 @@ export default function InspecaoPage() {
   const validadeEfetiva = validadeEncontrada || (itemAtual?.validade ?? '')
   const zonaEncontrada = validadeEfetiva ? getZone(validadeEfetiva) : null
   const validadeAlterada = !!validadeEncontrada && validadeEncontrada !== itemAtual?.validade
-  const zonaEncontradaCritica = zonaEncontrada && (zonaEncontrada.name === 'vermelho' || zonaEncontrada.name === 'vencido')
-
-  // Foto obrigatória somente se houve alteração na validade e a nova zona é vermelha/vencido
-  const fotoObrigatoria = validadeAlterada && zonaEncontradaCritica
 
   const handleValidadeTexto = (raw: string) => {
     // Remove tudo que não é dígito
@@ -324,7 +323,6 @@ export default function InspecaoPage() {
   }
 
   const handleConfirmarOk = async () => {
-    if (fotoObrigatoria && !foto) return
     setProcessing(true)
     await confirmar(true, validadeEfetiva, obs, foto)
     limparEstado()
@@ -332,10 +330,17 @@ export default function InspecaoPage() {
   }
 
   const handleConfirmarSegregacao = async () => {
-    if (fotoObrigatoria && !foto) return
     if (!qtdSegregar) return
     setProcessing(true)
     await confirmar(false, validadeEfetiva, obs, foto, Number(qtdSegregar))
+    limparEstado()
+    setProcessing(false)
+  }
+
+  const handleEncerrar = async () => {
+    setProcessing(true)
+    await encerrar()
+    setConfirmEncerrar(false)
     limparEstado()
     setProcessing(false)
   }
@@ -350,7 +355,6 @@ export default function InspecaoPage() {
   // Produto localizado em endereço com saldo zero: registra quantidade + validade
   const handleConfirmarEncontrado = async () => {
     if (!validadeEncontrada || !qtdEncontrada || Number(qtdEncontrada) < 1) return
-    if (fotoObrigatoria && !foto) return
     setProcessing(true)
     await confirmar(true, validadeEncontrada, obs, foto, undefined, Number(qtdEncontrada))
     limparEstado()
@@ -774,12 +778,20 @@ export default function InspecaoPage() {
               <div className="bg-blue-600 h-1.5 rounded-full transition-all" style={{ width: `${(state.atual / state.fila.length) * 100}%` }} />
             </div>
           </div>
-          <button
-            onClick={() => setShowAddModal(true)}
-            className="flex items-center gap-1 text-xs font-semibold text-blue-600 border border-blue-200 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg transition-colors"
-          >
-            + Endereço
-          </button>
+          <div className="flex flex-col gap-1.5">
+            <button
+              onClick={() => setShowAddModal(true)}
+              className="flex items-center justify-center gap-1 text-xs font-semibold text-blue-600 border border-blue-200 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg transition-colors"
+            >
+              + Endereço
+            </button>
+            <button
+              onClick={() => setConfirmEncerrar(true)}
+              className="flex items-center justify-center gap-1 text-xs font-semibold text-red-600 border border-red-200 bg-red-50 hover:bg-red-100 px-3 py-1.5 rounded-lg transition-colors"
+            >
+              ■ Encerrar
+            </button>
+          </div>
         </div>
       </div>
 
@@ -911,14 +923,10 @@ export default function InspecaoPage() {
                 <ZoneCell validade={validadeEncontrada} />
               </div>
             )}
-            {/* Foto — obrigatória se a validade encontrada cai em zona crítica */}
+            {/* Foto opcional */}
             <div className="flex flex-col gap-1">
               <label className="text-xs font-semibold text-gray-600">
-                Foto{' '}
-                {fotoObrigatoria
-                  ? <span className="text-red-500">* obrigatória — zona crítica</span>
-                  : <span className="text-gray-400">(opcional)</span>
-                }
+                Foto <span className="text-gray-400">(opcional)</span>
               </label>
               {foto ? (
                 <div className="relative">
@@ -930,10 +938,7 @@ export default function InspecaoPage() {
                 <button
                   onClick={() => fileRef.current?.click()}
                   className="border-2 border-dashed rounded-lg py-4 text-sm transition-colors bg-white"
-                  style={fotoObrigatoria
-                    ? { borderColor: '#dc2626', color: '#dc2626' }
-                    : { borderColor: '#bfdbfe', color: '#60a5fa' }
-                  }
+                  style={{ borderColor: '#bfdbfe', color: '#60a5fa' }}
                 >
                   📷 Tirar foto
                 </button>
@@ -957,7 +962,7 @@ export default function InspecaoPage() {
                 variant="primary"
                 size="sm"
                 onClick={handleConfirmarEncontrado}
-                disabled={processing || !qtdEncontrada || Number(qtdEncontrada) < 1 || !validadeEncontrada || (!!fotoObrigatoria && !foto)}
+                disabled={processing || !qtdEncontrada || Number(qtdEncontrada) < 1 || !validadeEncontrada}
                 className="justify-center"
               >
                 {processing ? 'Salvando…' : 'Registrar e continuar'}
@@ -1024,11 +1029,7 @@ export default function InspecaoPage() {
             {/* Foto */}
             <div className="flex flex-col gap-1">
               <label className="text-xs font-semibold text-gray-600">
-                Foto{' '}
-                {fotoObrigatoria
-                  ? <span className="text-red-500">* obrigatória — validade alterada para zona crítica</span>
-                  : <span className="text-gray-400">(opcional)</span>
-                }
+                Foto <span className="text-gray-400">(opcional)</span>
               </label>
               {foto ? (
                 <div className="relative">
@@ -1040,10 +1041,7 @@ export default function InspecaoPage() {
                 <button
                   onClick={() => fileRef.current?.click()}
                   className="border-2 border-dashed rounded-lg py-6 text-sm transition-colors"
-                  style={fotoObrigatoria
-                    ? { borderColor: '#dc2626', color: '#dc2626' }
-                    : { borderColor: '#e1e4ea', color: '#9ca3af' }
-                  }
+                  style={{ borderColor: '#e1e4ea', color: '#9ca3af' }}
                 >
                   📷 Tirar foto
                 </button>
@@ -1080,9 +1078,6 @@ export default function InspecaoPage() {
                   />
                   <span className="text-xs text-orange-400 font-mono">/ {itemAtual.quantidade}</span>
                 </div>
-                {fotoObrigatoria && !foto && (
-                  <p className="text-[11px] text-red-600 font-medium">⚠ Foto obrigatória — validade alterada para zona crítica</p>
-                )}
                 <div className="grid grid-cols-2 gap-2">
                   <Button variant="ghost" size="sm" onClick={() => { setShowSegregar(false); setQtdSegregar('') }} className="justify-center">
                     Cancelar
@@ -1091,7 +1086,7 @@ export default function InspecaoPage() {
                     variant="danger"
                     size="sm"
                     onClick={handleConfirmarSegregacao}
-                    disabled={processing || !qtdSegregar || Number(qtdSegregar) < 1 || (!!fotoObrigatoria && !foto)}
+                    disabled={processing || !qtdSegregar || Number(qtdSegregar) < 1}
                     className="justify-center"
                   >
                     {processing ? 'Salvando…' : 'Confirmar Segregação'}
@@ -1115,7 +1110,7 @@ export default function InspecaoPage() {
                   <Button
                     variant="primary"
                     onClick={handleConfirmarOk}
-                    disabled={processing || !validadeConfirmada || (!!fotoObrigatoria && !foto)}
+                    disabled={processing || !validadeConfirmada}
                     className="justify-center py-3"
                   >
                     {processing ? 'Salvando…' : 'Confirmar OK'}
@@ -1158,6 +1153,33 @@ export default function InspecaoPage() {
           )}
         </div>
       </div>
+      {/* Modal — encerramento antecipado */}
+      <Modal open={confirmEncerrar} onClose={() => setConfirmEncerrar(false)} title="Encerrar Inspeção">
+        <div className="flex flex-col gap-4">
+          <p className="text-sm text-gray-600">
+            Encerrar a <strong>Inspeção #{state.numero}</strong> agora?
+          </p>
+          <div className="rounded-lg border border-green-100 bg-green-50 p-3">
+            <p className="text-xs text-green-700">
+              ✓ Os <strong>{state.resultados.length} endereços já confirmados estão salvos</strong> —
+              cada confirmação é gravada na hora, nada se perde.
+            </p>
+          </div>
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+            <p className="text-xs text-amber-700">
+              Os <strong>{Math.max(0, state.fila.length - state.atual)} endereços restantes</strong> ficarão
+              de fora e a inspeção será concluída. Para inspecioná-los depois, inicie uma nova inspeção.
+            </p>
+          </div>
+          <div className="flex justify-end gap-3">
+            <Button variant="ghost" onClick={() => setConfirmEncerrar(false)} disabled={processing}>Voltar</Button>
+            <Button variant="danger" onClick={handleEncerrar} disabled={processing}>
+              {processing ? 'Encerrando…' : 'Encerrar e salvar'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
       {/* Modal — incluir novo endereço de inspeção (popup mínimo) */}
       <Modal open={showAddModal} onClose={() => { setShowAddModal(false); setNovoItem(novoItemVazio) }} title="Incluir Endereço de Inspeção">
         <div className="flex flex-col gap-4">
