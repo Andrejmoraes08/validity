@@ -56,6 +56,10 @@ export default function InspecaoPage() {
   const [qtdSegregar, setQtdSegregar] = useState('')
   const [showBaixa, setShowBaixa] = useState(false)
   const [validadeConfirmada, setValidadeConfirmada] = useState(false)
+
+  // Endereço vazio (saldo zero) — registrar produto encontrado
+  const [mostrarEncontrado, setMostrarEncontrado] = useState(false)
+  const [qtdEncontrada, setQtdEncontrada] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
 
   // Novo endereço durante inspeção ativa: popup mínimo → inspeção complementar
@@ -169,6 +173,17 @@ export default function InspecaoPage() {
     setValidadeEncontrada('')
     setValidadeTexto('')
     setValidadeConfirmada(false)
+  }
+
+  // Máscara de endereço: digita só números, aplica "X - XX - X - X" (rua, prédio, nível, apto)
+  const handleEnderecoTexto = (raw: string) => {
+    const digits = raw.replace(/\D/g, '').slice(0, 5)
+    const segs: string[] = []
+    if (digits.length > 0) segs.push(digits.slice(0, 1))
+    if (digits.length > 1) segs.push(digits.slice(1, 3))
+    if (digits.length > 3) segs.push(digits.slice(3, 4))
+    if (digits.length > 4) segs.push(digits.slice(4, 5))
+    setNovoItem(p => ({ ...p, endereco: segs.join(' - ') }))
   }
 
   const handleNovoValidadeTexto = (raw: string) => {
@@ -304,6 +319,8 @@ export default function InspecaoPage() {
     setShowSegregar(false)
     setQtdSegregar('')
     setShowBaixa(false)
+    setMostrarEncontrado(false)
+    setQtdEncontrada('')
   }
 
   const handleConfirmarOk = async () => {
@@ -326,6 +343,16 @@ export default function InspecaoPage() {
   const handleBaixaEndereco = async () => {
     setProcessing(true)
     await baixarEndereco(obs)
+    limparEstado()
+    setProcessing(false)
+  }
+
+  // Produto localizado em endereço com saldo zero: registra quantidade + validade
+  const handleConfirmarEncontrado = async () => {
+    if (!validadeEncontrada || !qtdEncontrada || Number(qtdEncontrada) < 1) return
+    if (fotoObrigatoria && !foto) return
+    setProcessing(true)
+    await confirmar(true, validadeEncontrada, obs, foto, undefined, Number(qtdEncontrada))
     limparEstado()
     setProcessing(false)
   }
@@ -809,8 +836,11 @@ export default function InspecaoPage() {
           )}
         </div>
 
+        {/* Input de foto compartilhado entre os fluxos */}
+        <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={handleFoto} className="hidden" />
+
         {/* SALDO ZERO — fluxo simplificado */}
-        {saldoZero && (
+        {saldoZero && !mostrarEncontrado && (
           <div className="flex flex-col gap-3 rounded-xl border border-dashed border-gray-300 bg-gray-50 p-4">
             <p className="text-sm text-gray-600">
               Confirme se o endereço <strong className="font-mono">{enderecoAtual}</strong> ({tipoLabel}) está <strong>fisicamente vazio</strong>.
@@ -821,7 +851,7 @@ export default function InspecaoPage() {
                 value={obs}
                 onChange={e => setObs(e.target.value)}
                 rows={2}
-                placeholder="Ex: endereço limpo, produto encontrado sem registro…"
+                placeholder="Ex: endereço limpo…"
                 className="border border-gray-200 rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:border-gray-300 text-gray-600"
               />
             </div>
@@ -833,6 +863,106 @@ export default function InspecaoPage() {
             >
               {processing ? 'Salvando…' : '✓ Confirmar endereço vazio'}
             </Button>
+            <button
+              onClick={() => setMostrarEncontrado(true)}
+              disabled={processing}
+              className="w-full py-2.5 rounded-lg text-sm font-semibold border border-blue-200 bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors"
+            >
+              ➕ Encontrei produto neste endereço
+            </button>
+          </div>
+        )}
+
+        {/* SALDO ZERO — produto localizado: registrar quantidade e validade */}
+        {saldoZero && mostrarEncontrado && (
+          <div className="flex flex-col gap-3 rounded-xl border border-blue-200 bg-blue-50 p-4">
+            <p className="text-sm font-semibold text-blue-800">
+              Registrar produto localizado em <span className="font-mono">{enderecoAtual}</span>
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-semibold text-gray-600">Quantidade encontrada *</label>
+                <input
+                  type="number"
+                  min={1}
+                  value={qtdEncontrada}
+                  onChange={e => setQtdEncontrada(e.target.value)}
+                  placeholder="0"
+                  autoFocus
+                  className="border border-blue-200 rounded-lg px-3 py-2 text-sm font-mono bg-white focus:outline-none focus:border-blue-400"
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-semibold text-gray-600">Validade encontrada *</label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={validadeTexto}
+                  onChange={e => handleValidadeTexto(e.target.value)}
+                  placeholder="DD/MM/AAAA"
+                  maxLength={10}
+                  className="border border-blue-200 rounded-lg px-3 py-2 text-sm font-mono bg-white focus:outline-none focus:border-blue-400"
+                />
+              </div>
+            </div>
+            {validadeEncontrada && zonaEncontrada && (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-500">Zona:</span>
+                <ZoneCell validade={validadeEncontrada} />
+              </div>
+            )}
+            {/* Foto — obrigatória se a validade encontrada cai em zona crítica */}
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-semibold text-gray-600">
+                Foto{' '}
+                {fotoObrigatoria
+                  ? <span className="text-red-500">* obrigatória — zona crítica</span>
+                  : <span className="text-gray-400">(opcional)</span>
+                }
+              </label>
+              {foto ? (
+                <div className="relative">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={foto} alt="foto inspecao" className="rounded-lg w-full max-h-40 object-cover" />
+                  <button onClick={() => setFoto(undefined)} className="absolute top-2 right-2 bg-red-600 text-white w-6 h-6 rounded-full text-xs">✕</button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => fileRef.current?.click()}
+                  className="border-2 border-dashed rounded-lg py-4 text-sm transition-colors bg-white"
+                  style={fotoObrigatoria
+                    ? { borderColor: '#dc2626', color: '#dc2626' }
+                    : { borderColor: '#bfdbfe', color: '#60a5fa' }
+                  }
+                >
+                  📷 Tirar foto
+                </button>
+              )}
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-semibold text-gray-400">Observação (opcional)</label>
+              <textarea
+                value={obs}
+                onChange={e => setObs(e.target.value)}
+                rows={2}
+                placeholder="Ex: produto sem registro de movimentação…"
+                className="border border-gray-200 rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:border-gray-300 text-gray-600 bg-white"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <Button variant="ghost" size="sm" onClick={() => { setMostrarEncontrado(false); setQtdEncontrada(''); limparValidade() }} disabled={processing} className="justify-center">
+                Cancelar
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={handleConfirmarEncontrado}
+                disabled={processing || !qtdEncontrada || Number(qtdEncontrada) < 1 || !validadeEncontrada || (!!fotoObrigatoria && !foto)}
+                className="justify-center"
+              >
+                {processing ? 'Salvando…' : 'Registrar e continuar'}
+              </Button>
+            </div>
           </div>
         )}
 
@@ -900,7 +1030,6 @@ export default function InspecaoPage() {
                   : <span className="text-gray-400">(opcional)</span>
                 }
               </label>
-              <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={handleFoto} className="hidden" />
               {foto ? (
                 <div className="relative">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -1038,12 +1167,16 @@ export default function InspecaoPage() {
           </p>
 
           <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold text-gray-600">Endereço * <span className="text-gray-400 font-normal">(ex: 1 - 2 - 0 - 1)</span></label>
-            <input type="text" value={novoItem.endereco}
-              onChange={e => setNovoItem(p => ({ ...p, endereco: e.target.value }))}
-              placeholder="Rua - Prédio - Nível - Apto"
+            <label className="text-xs font-semibold text-gray-600">Endereço *</label>
+            <input type="text" inputMode="numeric" value={novoItem.endereco}
+              onChange={e => handleEnderecoTexto(e.target.value)}
+              placeholder="Digite os números: ex 65340"
+              maxLength={14}
               autoFocus
               className="border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-blue-500" />
+            <p className="text-[11px] text-gray-400">
+              Só os números — o padrão <span className="font-mono">Rua - Prédio - Nível - Apto</span> é aplicado automaticamente
+            </p>
           </div>
 
           <div className="flex flex-col gap-1">

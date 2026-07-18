@@ -234,6 +234,7 @@ export function useInspecao() {
     obs: string,
     foto?: string,
     quantidadeSegregada?: number,
+    quantidadeEncontrada?: number,
   ) => {
     const entrada = state.fila[state.atual]
     const { item, tipo } = entrada
@@ -260,24 +261,27 @@ export function useInspecao() {
         observacao_inspecao: obs || null,
         ...(fotoUrl ? { foto_inspecao: fotoUrl } : {}),
         ...(validadeAlterada ? { validade: validadeEncontrada } : {}),
+        ...(quantidadeEncontrada !== undefined ? { quantidade: quantidadeEncontrada } : {}),
         status: ok ? 'ativo' : 'segregado',
         ...(ok ? {} : { segregado_em: now, segregado_por: state.responsavel }),
       }).eq('id', item.id)
     } else {
-      if (obs || validadeAlterada || fotoUrl) {
+      if (obs || validadeAlterada || fotoUrl || quantidadeEncontrada !== undefined) {
         await supabase.from('itens').update({
           ...(obs ? { observacao_inspecao: obs } : {}),
           ...(fotoUrl ? { foto_inspecao: fotoUrl } : {}),
           ...(validadeAlterada ? { validade: validadeEncontrada } : {}),
+          ...(quantidadeEncontrada !== undefined ? { quantidade: quantidadeEncontrada } : {}),
         }).eq('id', item.id)
       }
     }
 
     const endLabel = tipo === 'frac' ? 'Frac.' : 'Gran.'
     const qtdInfo = !ok && quantidadeSegregada ? ` | Qtd: ${quantidadeSegregada}` : ''
-    const descricao = validadeAlterada
+    const saldoInfo = quantidadeEncontrada !== undefined ? ` | Saldo registrado: ${quantidadeEncontrada}` : ''
+    const descricao = (validadeAlterada
       ? `Inspeção #${state.numero} ${endLabel}: ${item.sku} — validade corrigida ${item.validade} → ${validadeEncontrada}${ok ? '' : ` | Segregado${qtdInfo}`}`
-      : `Inspeção #${state.numero} ${endLabel}: ${item.sku} — ${ok ? 'OK' : `Segregado${qtdInfo}`}`
+      : `Inspeção #${state.numero} ${endLabel}: ${item.sku} — ${ok ? 'OK' : `Segregado${qtdInfo}`}`) + saldoInfo
 
     await supabase.from('historico').insert({
       descricao,
