@@ -56,8 +56,10 @@ export function ItemForm({ open, onClose, onSave, initial, title }: ItemFormProp
     }
   }
 
+  const temEndereco = !!(form.endereco_frac ?? '').trim() || !!(form.endereco_gran ?? '').trim()
+
   const handleSave = async () => {
-    if (!form.sku || !form.descricao || !form.endereco_frac || !form.validade) return
+    if (!form.sku || !form.descricao || !form.validade || !temEndereco) return
     setSaving(true)
     await onSave({
       ...form,
@@ -85,13 +87,16 @@ export function ItemForm({ open, onClose, onSave, initial, title }: ItemFormProp
           <input type="text" value={form.descricao ?? ''} onChange={set('descricao')} className={inputClass} />
         </div>
         <div className="flex flex-col gap-1">
-          <label className={labelClass}>Endereço de Picking <span className="text-red-500">*</span></label>
+          <label className={labelClass}>Endereço de Picking</label>
           <input type="text" value={form.endereco_frac ?? ''} onChange={set('endereco_frac')} className={inputClass} />
         </div>
         <div className="flex flex-col gap-1">
           <label className={labelClass}>Endereço de Pulmão</label>
           <input type="text" value={form.endereco_gran ?? ''} onChange={set('endereco_gran')} className={inputClass} />
         </div>
+        {!temEndereco && (
+          <p className="col-span-2 text-[11px] text-amber-600 -mt-2">Informe pelo menos um endereço (picking ou pulmão)</p>
+        )}
         <div className="flex flex-col gap-1">
           <label className={labelClass}>Quantidade <span className="text-red-500">*</span></label>
           <input type="number" min={0} value={form.quantidade ?? 0} onChange={set('quantidade')} className={inputClass} />
