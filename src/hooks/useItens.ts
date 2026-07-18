@@ -9,11 +9,21 @@ export function useItens() {
 
   const fetchItens = useCallback(async () => {
     setLoading(true)
-    const { data, error } = await supabase
-      .from('itens')
-      .select('*')
-      .order('validade', { ascending: true })
-    if (!error && data) setItens(data as Item[])
+    // Busca paginada — o PostgREST limita cada consulta a 1000 linhas
+    const todos: Item[] = []
+    const pagina = 1000
+    for (let offset = 0; ; offset += pagina) {
+      const { data, error } = await supabase
+        .from('itens')
+        .select('*')
+        .order('validade', { ascending: true })
+        .order('id', { ascending: true })
+        .range(offset, offset + pagina - 1)
+      if (error || !data) break
+      todos.push(...(data as Item[]))
+      if (data.length < pagina) break
+    }
+    setItens(todos)
     setLoading(false)
   }, [])
 
