@@ -1,6 +1,6 @@
 'use client'
 import { useState } from 'react'
-import { usePerfis, TODAS_TABS, type Perfil } from '@/hooks/usePerfil'
+import { usePerfis, TODAS_TABS, type Perfil, type Role } from '@/hooks/usePerfil'
 import { usePerfílContext } from '@/lib/perfil-context'
 import { useToast } from '@/components/layout/Toast'
 import { Button } from '@/components/ui/Button'
@@ -37,11 +37,54 @@ export default function ConfigPage() {
   const { fetchItens } = useItens()
   const { toast } = useToast()
   const { isAdmin } = usePerfílContext()
-  const { perfis, loading: perfisLoading, tabelaOk, updatePerfil } = usePerfis()
+  const { perfis, loading: perfisLoading, tabelaOk, updatePerfil, reload: reloadPerfis } = usePerfis()
 
   const [resetModal, setResetModal] = useState(false)
   const [editPerfil, setEditPerfil] = useState<Perfil | null>(null)
   const [savingPerfil, setSavingPerfil] = useState(false)
+
+  // Cadastro de novo usuário pelo admin
+  const novoUsuarioVazio = { nome: '', email: '', senha: '', role: 'operador' as Role, tabs: ['dashboard', 'estoque', 'inspecao', 'wms'] }
+  const [novoModal, setNovoModal] = useState(false)
+  const [novoUsuario, setNovoUsuario] = useState(novoUsuarioVazio)
+  const [criando, setCriando] = useState(false)
+
+  const handleCriarUsuario = async () => {
+    if (!novoUsuario.email || novoUsuario.senha.length < 6) return
+    setCriando(true)
+    const { data: { session } } = await supabase.auth.getSession()
+    const res = await fetch('/api/admin/usuarios', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${session?.access_token ?? ''}`,
+      },
+      body: JSON.stringify({
+        nome: novoUsuario.nome,
+        email: novoUsuario.email,
+        senha: novoUsuario.senha,
+        role: novoUsuario.role,
+        tabs_permitidas: novoUsuario.role === 'admin' ? TODAS_TABS.map(t => t.key) : novoUsuario.tabs,
+      }),
+    })
+    const json = await res.json().catch(() => ({}))
+    setCriando(false)
+    if (!res.ok) {
+      toast(json.error ?? 'Erro ao criar usuário', 'error')
+      return
+    }
+    toast(`Usuário ${novoUsuario.email} criado`)
+    setNovoModal(false)
+    setNovoUsuario(novoUsuarioVazio)
+    reloadPerfis()
+  }
+
+  const toggleTabNovo = (tab: string) => {
+    setNovoUsuario(p => ({
+      ...p,
+      tabs: p.tabs.includes(tab) ? p.tabs.filter(t => t !== tab) : [...p.tabs, tab],
+    }))
+  }
   // Exportação da timeline em Excel com filtro de período
   const [deTexto, setDeTexto] = useState('')
   const [deISO, setDeISO] = useState('')
@@ -164,9 +207,14 @@ export default function ConfigPage() {
               <h2 className="font-bold text-blue-900 text-sm">Controle de Acesso</h2>
               <p className="text-xs text-blue-500 mt-0.5">Gerencie permissões de abas por usuário</p>
             </div>
-            <span className="text-[11px] font-bold bg-blue-600 text-white px-2 py-0.5 rounded-full">
-              {perfis.length} usuário{perfis.length !== 1 ? 's' : ''}
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-bold bg-blue-600 text-white px-2 py-0.5 rounded-full">
+                {perfis.length} usuário{perfis.length !== 1 ? 's' : ''}
+              </span>
+              <Button size="sm" variant="primary" onClick={() => setNovoModal(true)}>
+                + Novo usuário
+              </Button>
+            </div>
           </div>
 
           <div className="p-6 flex flex-col gap-3">
@@ -189,8 +237,7 @@ export default function ConfigPage() {
                 <div className="text-2xl">👤</div>
                 <p className="text-sm font-semibold text-gray-600">Nenhum usuário registrado ainda</p>
                 <p className="text-xs text-gray-400 max-w-xs mx-auto">
-                  Crie usuários no Supabase em <strong>Authentication → Users → Add user</strong>.
-                  Aparecerão aqui após o primeiro login.
+                  Use o botão <strong>+ Novo usuário</strong> para cadastrar operadores.
                 </p>
               </div>
             )}
@@ -223,7 +270,7 @@ export default function ConfigPage() {
             )}
             {!perfisLoading && tabelaOk && (
               <p className="text-[11px] text-gray-400 text-center mt-1">
-                Novos usuários: <strong>Supabase → Authentication → Users → Add user</strong> (marque Auto Confirm)
+                O usuário pode trocar a senha depois pelo <strong>&quot;Esqueci minha senha&quot;</strong> na tela de login
               </p>
             )}
           </div>
@@ -291,6 +338,90 @@ export default function ConfigPage() {
           <Button variant="danger" onClick={() => setResetModal(true)}>Resetar todos os dados</Button>
         </div>
       )}
+
+      {/* Modal novo usuário */}
+      <Modal open={novoModal} onClose={() => { setNovoModal(false); setNovoUsuario(novoUsuarioVazio) }} title="Cadastrar Novo Usuário">
+        <div className="flex flex-col gap-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-semibold text-gray-600">Nome</label>
+              <input type="text" value={novoUsuario.nome}
+                onChange={e => setNovoUsuario(p => ({ ...p, nome: e.target.value }))}
+                placeholder="Nome do operador"
+                className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-semibold text-gray-600">Senha inicial *</label>
+              <input type="text" value={novoUsuario.senha}
+                onChange={e => setNovoUsuario(p => ({ ...p, senha: e.target.value }))}
+                placeholder="Mínimo 6 caracteres"
+                className="border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-blue-500" />
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-semibold text-gray-600">E-mail *</label>
+            <input type="email" value={novoUsuario.email}
+              onChange={e => setNovoUsuario(p => ({ ...p, email: e.target.value }))}
+              placeholder="usuario@grfdistribuicao.com.br"
+              className="border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-blue-500" />
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <label className="text-xs font-semibold text-gray-600">Função</label>
+            <div className="flex gap-2">
+              {(['admin', 'operador'] as const).map(r => (
+                <button key={r}
+                  onClick={() => setNovoUsuario(p => ({ ...p, role: r }))}
+                  className="flex-1 py-2 rounded-lg text-sm font-semibold border transition-colors"
+                  style={novoUsuario.role === r
+                    ? { background: '#1f6feb', color: '#fff', borderColor: '#1f6feb' }
+                    : { background: '#f5f6f8', color: '#5a6070', borderColor: '#e1e4ea' }}>
+                  {roleLabel[r]}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <label className="text-xs font-semibold text-gray-600">Abas permitidas</label>
+            <div className="grid grid-cols-2 gap-2">
+              {TODAS_TABS.map(t => {
+                const ativo = novoUsuario.role === 'admin' || novoUsuario.tabs.includes(t.key)
+                const desabilitado = novoUsuario.role === 'admin'
+                return (
+                  <button key={t.key}
+                    onClick={() => !desabilitado && toggleTabNovo(t.key)}
+                    disabled={desabilitado}
+                    className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium border transition-colors text-left disabled:opacity-60"
+                    style={ativo
+                      ? { background: '#eff6ff', color: '#1d4ed8', borderColor: '#bfdbfe' }
+                      : { background: '#f9fafb', color: '#9ca3af', borderColor: '#f3f4f6' }}>
+                    <span className={`w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 ${ativo ? 'bg-blue-600 border-blue-600' : 'border-gray-300'}`}>
+                      {ativo && <span className="text-white text-[10px] font-bold">✓</span>}
+                    </span>
+                    {t.label}
+                  </button>
+                )
+              })}
+            </div>
+            {novoUsuario.role === 'admin' && (
+              <p className="text-[11px] text-blue-500">Admin tem acesso a todas as abas automaticamente</p>
+            )}
+          </div>
+
+          <div className="flex justify-end gap-3 pt-2">
+            <Button variant="ghost" onClick={() => { setNovoModal(false); setNovoUsuario(novoUsuarioVazio) }}>Cancelar</Button>
+            <Button
+              variant="primary"
+              onClick={handleCriarUsuario}
+              disabled={criando || !novoUsuario.email || novoUsuario.senha.length < 6}
+            >
+              {criando ? 'Criando…' : 'Criar usuário'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
 
       {/* Modal editar perfil */}
       <Modal open={!!editPerfil} onClose={() => setEditPerfil(null)} title="Editar Perfil de Acesso">
