@@ -25,6 +25,14 @@ function extrairRua(endereco: string): string {
   return endereco.split('-')[0].trim()
 }
 
+// Lado da rua pela paridade do prédio (2º segmento): "6 - 53 - 4 - 0" → ímpar
+type LadoRua = 'par' | 'impar'
+function extrairLado(endereco: string): LadoRua | null {
+  const predio = parseInt(endereco.split('-')[1]?.trim() ?? '', 10)
+  if (isNaN(predio)) return null
+  return predio % 2 === 0 ? 'par' : 'impar'
+}
+
 const novoItemVazio = {
   sku: '', descricao: '', lote: '', tipo: 'frac' as 'frac' | 'gran',
   endereco: '', quantidade: '', validadeTexto: '', validadeISO: '',
@@ -76,6 +84,7 @@ export default function InspecaoPage() {
   const [ruasSelecionadas, setRuasSelecionadas] = useState<string[]>([])
   const [zonasSelecionadas, setZonasSelecionadas] = useState<ZoneName[]>([])
   const [tiposSelecionados, setTiposSelecionados] = useState<TipoEndereco[]>([])
+  const [ladosSelecionados, setLadosSelecionados] = useState<LadoRua[]>([])
   const [incluirSaldoZero, setIncluirSaldoZero] = useState(false)
 
   // Monta fila expandida: cada endereço (frac e gran) é uma entrada independente
@@ -113,6 +122,10 @@ export default function InspecaoPage() {
     return todasEntradas.filter(e => {
       if (!incluirSaldoZero && e.item.quantidade === 0) return false
       if (tiposSelecionados.length > 0 && !tiposSelecionados.includes(e.tipo)) return false
+      if (ladosSelecionados.length > 0) {
+        const lado = extrairLado(e.endereco)
+        if (!lado || !ladosSelecionados.includes(lado)) return false
+      }
       if (ruasSelecionadas.length > 0) {
         if (!ruasSelecionadas.includes(extrairRua(e.endereco))) return false
       }
@@ -121,7 +134,7 @@ export default function InspecaoPage() {
       }
       return true
     })
-  }, [todasEntradas, ruasSelecionadas, zonasSelecionadas, tiposSelecionados, incluirSaldoZero])
+  }, [todasEntradas, ruasSelecionadas, zonasSelecionadas, tiposSelecionados, ladosSelecionados, incluirSaldoZero])
 
   const toggleRua = (rua: string) =>
     setRuasSelecionadas(prev => prev.includes(rua) ? prev.filter(r => r !== rua) : [...prev, rua])
@@ -131,6 +144,9 @@ export default function InspecaoPage() {
 
   const toggleTipo = (tipo: TipoEndereco) =>
     setTiposSelecionados(prev => prev.includes(tipo) ? prev.filter(t => t !== tipo) : [...prev, tipo])
+
+  const toggleLado = (lado: LadoRua) =>
+    setLadosSelecionados(prev => prev.includes(lado) ? prev.filter(l => l !== lado) : [...prev, lado])
 
   const entradaAtual = state.phase === 'active' ? state.fila[state.atual] : null
   const itemAtual = entradaAtual?.item ?? null
@@ -446,6 +462,48 @@ export default function InspecaoPage() {
             )
           })}
           {ruas.length === 0 && <span className="text-xs text-gray-400">Nenhuma rua encontrada</span>}
+        </div>
+      </div>
+
+      {/* Filtro por Lado da Rua */}
+      <div className="bg-white rounded-xl border border-gray-100 p-5 shadow-sm flex flex-col gap-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <span className="text-sm font-bold text-gray-700">Filtrar por Lado da Rua</span>
+            <p className="text-xs text-gray-400 mt-0.5">Definido pelo número do prédio</p>
+          </div>
+          {ladosSelecionados.length > 0 && (
+            <button onClick={() => setLadosSelecionados([])} className="text-xs text-blue-500 hover:text-blue-700">
+              Limpar
+            </button>
+          )}
+        </div>
+        <div className="flex gap-2">
+          {([['par', 'Par', '#0e7490', '#ecfeff'], ['impar', 'Ímpar', '#b45309', '#fffbeb']] as const).map(([lado, label, cor, bg]) => {
+            const ativo = ladosSelecionados.includes(lado)
+            const count = todasEntradas.filter(e =>
+              extrairLado(e.endereco) === lado && (incluirSaldoZero || e.item.quantidade > 0)
+            ).length
+            return (
+              <button
+                key={lado}
+                onClick={() => toggleLado(lado)}
+                className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold border transition-colors"
+                style={ativo
+                  ? { background: cor, color: '#fff', borderColor: cor }
+                  : { background: bg, color: cor, borderColor: cor + '40' }
+                }
+              >
+                {label}
+                <span
+                  className="text-[11px] font-mono px-1.5 py-0.5 rounded"
+                  style={{ background: ativo ? 'rgba(255,255,255,.25)' : 'rgba(0,0,0,.08)' }}
+                >
+                  {count}
+                </span>
+              </button>
+            )
+          })}
         </div>
       </div>
 
