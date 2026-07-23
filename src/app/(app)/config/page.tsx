@@ -49,6 +49,34 @@ export default function ConfigPage() {
   const [novoUsuario, setNovoUsuario] = useState(novoUsuarioVazio)
   const [criando, setCriando] = useState(false)
 
+  // Alteração de senha de usuário pelo admin
+  const [senhaTarget, setSenhaTarget] = useState<Perfil | null>(null)
+  const [novaSenha, setNovaSenha] = useState('')
+  const [alterandoSenha, setAlterandoSenha] = useState(false)
+
+  const handleAlterarSenha = async () => {
+    if (!senhaTarget || novaSenha.length < 6) return
+    setAlterandoSenha(true)
+    const { data: { session } } = await supabase.auth.getSession()
+    const res = await fetch('/api/admin/usuarios', {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${session?.access_token ?? ''}`,
+      },
+      body: JSON.stringify({ user_id: senhaTarget.user_id, senha: novaSenha }),
+    })
+    const json = await res.json().catch(() => ({}))
+    setAlterandoSenha(false)
+    if (!res.ok) {
+      toast(json.error ?? 'Erro ao alterar senha', 'error')
+      return
+    }
+    toast(`Senha de ${senhaTarget.email} alterada`)
+    setSenhaTarget(null)
+    setNovaSenha('')
+  }
+
   const handleCriarUsuario = async () => {
     if (!novoUsuario.email || novoUsuario.senha.length < 6) return
     setCriando(true)
@@ -261,9 +289,14 @@ export default function ConfigPage() {
                         ))}
                       </div>
                     </div>
-                    <Button size="sm" variant="secondary" onClick={() => setEditPerfil({ ...p })} className="flex-shrink-0 mt-0.5">
-                      Editar acesso
-                    </Button>
+                    <div className="flex flex-col gap-1.5 flex-shrink-0 mt-0.5">
+                      <Button size="sm" variant="secondary" onClick={() => setEditPerfil({ ...p })}>
+                        Editar acesso
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => { setSenhaTarget(p); setNovaSenha('') }}>
+                        Alterar senha
+                      </Button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -418,6 +451,31 @@ export default function ConfigPage() {
               disabled={criando || !novoUsuario.email || novoUsuario.senha.length < 6}
             >
               {criando ? 'Criando…' : 'Criar usuário'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Modal alterar senha */}
+      <Modal open={!!senhaTarget} onClose={() => { setSenhaTarget(null); setNovaSenha('') }} title="Alterar Senha do Usuário">
+        <div className="flex flex-col gap-4">
+          <p className="text-sm text-gray-600">
+            Definindo nova senha para <strong>{senhaTarget?.nome || senhaTarget?.email}</strong>
+            <span className="block text-xs text-gray-400 font-mono mt-0.5">{senhaTarget?.email}</span>
+          </p>
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-semibold text-gray-600">Nova senha *</label>
+            <input type="text" value={novaSenha}
+              onChange={e => setNovaSenha(e.target.value)}
+              placeholder="Mínimo 6 caracteres"
+              autoFocus
+              className="border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-blue-500" />
+            <p className="text-[11px] text-gray-400">Repasse a senha ao usuário — ele pode trocá-la depois no login</p>
+          </div>
+          <div className="flex justify-end gap-3 pt-2">
+            <Button variant="ghost" onClick={() => { setSenhaTarget(null); setNovaSenha('') }}>Cancelar</Button>
+            <Button variant="primary" onClick={handleAlterarSenha} disabled={alterandoSenha || novaSenha.length < 6}>
+              {alterandoSenha ? 'Alterando…' : 'Alterar senha'}
             </Button>
           </div>
         </div>
