@@ -64,6 +64,7 @@ export default function InspecaoPage() {
   const [qtdSegregar, setQtdSegregar] = useState('')
   const [showBaixa, setShowBaixa] = useState(false)
   const [validadeConfirmada, setValidadeConfirmada] = useState(false)
+  const [qtdInspecao, setQtdInspecao] = useState('') // quantidade conferida no endereço
 
   // Endereço vazio (saldo zero) — registrar produto encontrado
   const [mostrarEncontrado, setMostrarEncontrado] = useState(false)
@@ -153,6 +154,12 @@ export default function InspecaoPage() {
   const entradaAtual = state.phase === 'active' ? state.fila[state.atual] : null
   const itemAtual = entradaAtual?.item ?? null
   const zonaAtual = itemAtual ? getZone(itemAtual.validade) : null
+
+  // Preenche a quantidade conferida com o saldo cadastrado ao mudar de endereço
+  useEffect(() => {
+    if (itemAtual) setQtdInspecao(String(itemAtual.quantidade))
+  }, [itemAtual])
+  const qtdAlterada = !!itemAtual && qtdInspecao !== '' && Number(qtdInspecao) !== itemAtual.quantidade
 
   // Validade efetiva = o que o inspetor informou (ou a cadastrada se não alterou)
   const validadeEfetiva = validadeEncontrada || (itemAtual?.validade ?? '')
@@ -355,9 +362,12 @@ export default function InspecaoPage() {
     setQtdEncontrada('')
   }
 
+  // Quantidade a gravar: só envia se o inspetor alterou o saldo cadastrado
+  const qtdParaSalvar = () => (qtdAlterada ? Number(qtdInspecao) : undefined)
+
   const handleConfirmarOk = async () => {
     setProcessing(true)
-    await confirmar(true, validadeEfetiva, obs, foto)
+    await confirmar(true, validadeEfetiva, obs, foto, undefined, qtdParaSalvar())
     limparEstado()
     setProcessing(false)
   }
@@ -365,7 +375,7 @@ export default function InspecaoPage() {
   const handleConfirmarSegregacao = async () => {
     if (!qtdSegregar) return
     setProcessing(true)
-    await confirmar(false, validadeEfetiva, obs, foto, Number(qtdSegregar))
+    await confirmar(false, validadeEfetiva, obs, foto, Number(qtdSegregar), qtdParaSalvar())
     limparEstado()
     setProcessing(false)
   }
@@ -966,11 +976,26 @@ export default function InspecaoPage() {
             <div className="text-gray-400">End. Pulmão</div>
             <div className="font-mono font-bold text-gray-800 mt-0.5">{itemAtual.endereco_gran || '—'}</div>
           </div>
-          <div className="bg-gray-50 rounded-lg p-3">
-            <div className="text-gray-400">Quantidade</div>
-            <div className="font-mono font-bold mt-0.5" style={{ color: saldoZero ? '#9ca3af' : '#1a1d24' }}>
-              {saldoZero ? '⊘ zero' : itemAtual.quantidade}
+          <div className="rounded-lg p-3" style={{ background: qtdAlterada ? '#fffbeb' : '#f9fafb' }}>
+            <div className="flex items-center justify-between">
+              <span className="text-gray-400">Quantidade conferida</span>
+              {qtdAlterada && <span className="text-[10px] font-bold text-amber-600">✎ {itemAtual.quantidade} → {qtdInspecao || 0}</span>}
             </div>
+            {saldoZero ? (
+              <div className="font-mono font-bold mt-0.5 text-gray-400">⊘ zero</div>
+            ) : (
+              <input
+                type="number"
+                min={0}
+                value={qtdInspecao}
+                onChange={e => setQtdInspecao(e.target.value)}
+                className="w-full mt-1 border rounded-lg px-2 py-1.5 text-sm font-mono font-bold bg-white focus:outline-none focus:ring-1"
+                style={{
+                  borderColor: qtdAlterada ? '#f59e0b' : '#e1e4ea',
+                  boxShadow: qtdAlterada ? '0 0 0 1px #f59e0b' : undefined,
+                }}
+              />
+            )}
           </div>
           {itemAtual.ultima_inspecao && (
             <div className="bg-gray-50 rounded-lg p-3">
