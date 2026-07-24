@@ -160,6 +160,8 @@ export default function InspecaoPage() {
     if (itemAtual) setQtdInspecao(String(itemAtual.quantidade))
   }, [itemAtual])
   const qtdAlterada = !!itemAtual && qtdInspecao !== '' && Number(qtdInspecao) !== itemAtual.quantidade
+  // Picking com saldo contado como zero: mantém o endereço ativo (não é baixa)
+  const zeradoNaInspecao = !!itemAtual && itemAtual.quantidade > 0 && qtdInspecao.trim() !== '' && Number(qtdInspecao) === 0
 
   // Validade efetiva = o que o inspetor informou (ou a cadastrada se não alterou)
   const validadeEfetiva = validadeEncontrada || (itemAtual?.validade ?? '')
@@ -1002,17 +1004,32 @@ export default function InspecaoPage() {
             {saldoZero ? (
               <div className="font-mono font-bold mt-0.5 text-gray-400">⊘ zero</div>
             ) : (
-              <input
-                type="number"
-                min={0}
-                value={qtdInspecao}
-                onChange={e => setQtdInspecao(e.target.value)}
-                className="w-full mt-1 border rounded-lg px-2 py-1.5 text-sm font-mono font-bold bg-white focus:outline-none focus:ring-1"
-                style={{
-                  borderColor: qtdAlterada ? '#f59e0b' : '#e1e4ea',
-                  boxShadow: qtdAlterada ? '0 0 0 1px #f59e0b' : undefined,
-                }}
-              />
+              <div className="flex items-center gap-1.5 mt-1">
+                <input
+                  type="number"
+                  min={0}
+                  value={qtdInspecao}
+                  onChange={e => setQtdInspecao(e.target.value)}
+                  className="flex-1 border rounded-lg px-2 py-1.5 text-sm font-mono font-bold bg-white focus:outline-none focus:ring-1"
+                  style={{
+                    borderColor: qtdAlterada ? '#f59e0b' : '#e1e4ea',
+                    boxShadow: qtdAlterada ? '0 0 0 1px #f59e0b' : undefined,
+                  }}
+                />
+                {!zeradoNaInspecao && (
+                  <button
+                    onClick={() => setQtdInspecao('0')}
+                    className="text-[11px] font-semibold text-gray-500 border border-gray-200 rounded-lg px-2 py-1.5 hover:bg-gray-100 whitespace-nowrap"
+                  >
+                    Zerar
+                  </button>
+                )}
+              </div>
+            )}
+            {zeradoNaInspecao && (
+              <p className="text-[10px] text-blue-600 mt-1 leading-tight">
+                Endereço permanece <strong>ativo</strong> com saldo zero — segue nas próximas inspeções
+              </p>
             )}
           </div>
           {itemAtual.ultima_inspecao && (
@@ -1277,7 +1294,7 @@ export default function InspecaoPage() {
                   <Button
                     variant="danger"
                     onClick={() => setShowSegregar(true)}
-                    disabled={processing || !validadeConfirmada}
+                    disabled={processing || !validadeConfirmada || zeradoNaInspecao}
                     className="justify-center py-3"
                   >
                     Segregar
@@ -1285,14 +1302,17 @@ export default function InspecaoPage() {
                   <Button
                     variant="primary"
                     onClick={handleConfirmarOk}
-                    disabled={processing || !validadeConfirmada}
+                    disabled={processing || (!validadeConfirmada && !zeradoNaInspecao)}
                     className="justify-center py-3"
                   >
-                    {processing ? 'Salvando…' : 'Confirmar OK'}
+                    {processing ? 'Salvando…' : zeradoNaInspecao ? 'Confirmar saldo zero' : 'Confirmar OK'}
                   </Button>
                 </div>
-                {!validadeConfirmada && (
+                {!validadeConfirmada && !zeradoNaInspecao && (
                   <p className="text-[11px] text-center text-gray-400">Confirme a validade do produto para prosseguir</p>
+                )}
+                {zeradoNaInspecao && (
+                  <p className="text-[11px] text-center text-blue-500">Saldo zero não exige validade — o picking continua ativo</p>
                 )}
               </div>
             )}
