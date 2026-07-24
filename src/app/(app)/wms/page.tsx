@@ -109,8 +109,12 @@ export default function WmsPage() {
       const predio = String(col(r, 'Predio') ?? '').trim()
       const nivel = String(col(r, 'Nivel') ?? '').trim()
       const apto = String(col(r, 'Apartamento') ?? '').trim()
-      const qtdeRaw = Number(col(r, 'Qtde') ?? 0)
-      const quantidade = qtdeRaw < 0 ? 0 : qtdeRaw
+      // Quantidade: célula vazia é desconsiderada (mantém saldo do sistema);
+      // valor presente é aplicado, negativo vira zero.
+      const qtdeCell = col(r, 'Qtde')
+      const qtdeVazia = qtdeCell === '' || qtdeCell === null || qtdeCell === undefined
+      const qtdeNum = Number(qtdeCell)
+      const quantidade = qtdeVazia || isNaN(qtdeNum) ? null : Math.max(0, qtdeNum)
       const validadeRaw = col(r, 'validade') || col(r, 'ValidadeNova')
       const validadeISO = excelSerialToISO(validadeRaw)
       const endereco = fmtEnd(rua, predio, nivel, apto)
@@ -132,9 +136,9 @@ export default function WmsPage() {
         .limit(1)
 
       if (existentes && existentes.length > 0) {
-        // Data inválida ou descrição vazia na planilha nunca sobrescrevem o cadastro
+        // Célula vazia (qtde/validade/descrição) nunca sobrescreve o cadastro existente
         const { error } = await supabase.from('itens').update({
-          quantidade,
+          ...(quantidade !== null ? { quantidade } : {}),
           ...(validadeISO ? { validade: validadeISO } : {}),
           ...(descricao ? { descricao } : {}),
         }).eq('id', existentes[0].id)
@@ -145,7 +149,7 @@ export default function WmsPage() {
           sku, descricao: descricao || '(sem descrição)', lote: 'S/L',
           endereco_frac: isPicking ? endereco : '',
           endereco_gran: isPicking ? '' : endereco,
-          quantidade, validade: validadeISO ?? '9999-12-31', status: 'ativo', user_id: user!.id,
+          quantidade: quantidade ?? 0, validade: validadeISO ?? '9999-12-31', status: 'ativo', user_id: user!.id,
         })
         if (error) erros++
         else criados++
