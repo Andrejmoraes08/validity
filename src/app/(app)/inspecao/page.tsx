@@ -78,6 +78,8 @@ export default function InspecaoPage() {
   const [faseComplemento, setFaseComplemento] = useState(false)
   const [novoItem, setNovoItem] = useState(novoItemVazio)
   const [complObs, setComplObs] = useState('')
+  const [complSegregar, setComplSegregar] = useState(false)
+  const [complQtdSegregar, setComplQtdSegregar] = useState('')
   const [savingNovo, setSavingNovo] = useState(false)
 
   // Filtros da tela inicial
@@ -240,12 +242,20 @@ export default function InspecaoPage() {
     setFaseComplemento(false)
     setNovoItem(novoItemVazio)
     setComplObs('')
+    setComplSegregar(false)
+    setComplQtdSegregar('')
   }
+
+  // Zona da validade informada no complemento — define se o produto está fora do prazo
+  const zonaComplemento = novoItem.validadeISO ? getZone(novoItem.validadeISO) : null
+  const complementoForaPrazo = !!zonaComplemento && (zonaComplemento.name === 'vencido' || zonaComplemento.name === 'vermelho')
 
   // Inspeção complementar confirmada → cria o item já inspecionado
   const handleConfirmarComplemento = async () => {
     const { sku, descricao, lote, tipo, endereco, quantidade, validadeISO } = novoItem
     if (!descricao || !validadeISO) return
+    // Segrega somente se estiver fora do prazo e o inspetor optar por segregar
+    const segregar = !!complementoForaPrazo && complSegregar
     setSavingNovo(true)
     const now = new Date().toISOString()
     const { error } = await addItem({
@@ -254,7 +264,8 @@ export default function InspecaoPage() {
       endereco_gran: tipo === 'gran' ? endereco : '',
       quantidade: Number(quantidade) || 0,
       validade: validadeISO,
-      status: 'ativo',
+      status: segregar ? 'segregado' : 'ativo',
+      ...(segregar ? { segregado_em: now, segregado_por: state.responsavel } : {}),
       ultima_inspecao: now,
       inspecionado_por: state.responsavel,
       observacao_inspecao: complObs || undefined,
@@ -272,22 +283,27 @@ export default function InspecaoPage() {
       .limit(1)
       .maybeSingle()
     const { data: { user } } = await supabase.auth.getUser()
+    const qtdSeg = segregar && complQtdSegregar ? ` | Qtd: ${complQtdSegregar}` : ''
     await supabase.from('historico').insert({
-      descricao: `Inspeção complementar: ${sku} — endereço ${endereco} localizado fora do programado`,
+      descricao: segregar
+        ? `Inspeção complementar: ${sku} — endereço ${endereco} localizado fora do programado | Segregado (fora do prazo)${qtdSeg}`
+        : `Inspeção complementar: ${sku} — endereço ${endereco} localizado fora do programado`,
       responsavel: state.responsavel,
       user_id: user!.id,
     })
     if (novo) {
       registrarExtra({
         entrada: { item: novo as Item, tipo, endereco },
-        ok: true,
-        acao: 'ok',
+        ok: !segregar,
+        acao: segregar ? 'segregado' : 'ok',
         validadeEncontrada: validadeISO,
         validadeAlterada: false,
         obs: complObs,
       })
     }
-    toast(`Endereço ${endereco} inspecionado e cadastrado`)
+    toast(segregar
+      ? `Endereço ${endereco} cadastrado e segregado — enviado ao Plano de Ação`
+      : `Endereço ${endereco} inspecionado e cadastrado`)
     cancelarComplemento()
     setSavingNovo(false)
   }
@@ -778,12 +794,67 @@ export default function InspecaoPage() {
 
         <div className="flex flex-col gap-1">
           <label className="text-xs font-semibold text-gray-600">Validade encontrada *</label>
-          <input type="text" inputMode="numeric" value={novoItem.validadeTexto}
-            onChange={e => handleNovoValidadeTexto(e.target.value)}
-            placeholder="DD/MM/AAAA"
-            maxLength={10}
-            className="border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-blue-500" />
+          <div className="flex items-center gap-2">
+            <input type="text" inputMode="numeric" value={novoItem.validadeTexto}
+              onChange={e => handleNovoValidadeTexto(e.target.value)}
+              placeholder="DD/MM/AAAA"
+              maxLength={10}
+              className="border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono flex-1 focus:outline-none focus:border-blue-500" />
+            {novoItem.validadeISO && <ZoneCell validade={novoItem.validadeISO} />}
+          </div>
         </div>
+
+        {/* Produto fora do prazo → perguntar sobre segregação */}
+        {complementoForaPrazo && (
+          <div className="flex flex-col gap-3 rounded-xl border border-orange-200 bg-orange-50 p-4">
+            <div className="flex items-start gap-2">
+              <span className="text-lg leading-none">⚠</span>
+              <div>
+                <p className="text-sm font-bold text-orange-800">Produto fora do prazo</p>
+                <p className="text-xs text-orange-600 mt-0.5">
+                  A validade informada está {zonaComplemento?.name === 'vencido' ? 'vencida' : 'em zona crítica'}.
+                  Deseja segregar o material e enviar ao Plano de Ação?
+                </p>
+              </div>
+            </div>
+            <label className="flex items-center justify-between cursor-pointer gap-4 bg-white rounded-lg border border-orange-100 px-3 py-2.5">
+              <span className="text-sm font-semibold text-gray-700">Segregar e enviar ao Plano de Ação</span>
+              <button
+                type="button"
+                onClick={() => {
+                  setComplSegregar(v => {
+                    const novo = !v
+                    if (novo && !complQtdSegregar) setComplQtdSegregar(novoItem.quantidade || '')
+                    return novo
+                  })
+                }}
+                className="relative flex-shrink-0 w-11 h-6 rounded-full transition-colors"
+                style={{ background: complSegregar ? '#ea580c' : '#d1d5db' }}
+              >
+                <span
+                  className="absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform"
+                  style={{ transform: complSegregar ? 'translateX(20px)' : 'translateX(0)' }}
+                />
+              </button>
+            </label>
+            {complSegregar && (
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-semibold text-gray-600">Quantidade a segregar</label>
+                <input
+                  type="number"
+                  min={1}
+                  value={complQtdSegregar}
+                  onChange={e => setComplQtdSegregar(e.target.value)}
+                  placeholder="Quantidade"
+                  className="border border-orange-200 rounded-lg px-3 py-2 text-sm font-mono bg-white focus:outline-none focus:border-orange-400"
+                />
+                <p className="text-[11px] text-orange-600">
+                  O item será cadastrado como <strong>Segregado</strong> — o bloqueio é confirmado no Plano de Ação
+                </p>
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="flex flex-col gap-1">
           <label className="text-xs font-semibold text-gray-400">Observação (opcional)</label>
@@ -799,12 +870,14 @@ export default function InspecaoPage() {
             Cancelar
           </Button>
           <Button
-            variant="primary"
+            variant={complementoForaPrazo && complSegregar ? 'danger' : 'primary'}
             onClick={handleConfirmarComplemento}
-            disabled={savingNovo || !novoItem.descricao || !novoItem.validadeISO}
+            disabled={savingNovo || !novoItem.descricao || !novoItem.validadeISO || (complementoForaPrazo && complSegregar && (!complQtdSegregar || Number(complQtdSegregar) < 1))}
             className="justify-center py-3"
           >
-            {savingNovo ? 'Salvando…' : 'Confirmar inspeção'}
+            {savingNovo
+              ? 'Salvando…'
+              : complementoForaPrazo && complSegregar ? 'Cadastrar e segregar' : 'Confirmar inspeção'}
           </Button>
         </div>
       </div>
