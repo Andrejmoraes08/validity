@@ -123,15 +123,14 @@ export function useInspecao() {
     }).eq('id', id)
   }
 
-  const buscarAberta = useCallback(async (): Promise<InspecaoAberta | null> => {
+  // Retorna TODAS as inspeções em aberto — permite múltiplas simultâneas por responsável
+  const buscarAbertas = useCallback(async (): Promise<InspecaoAberta[]> => {
     const { data } = await supabase
       .from('inspecoes')
       .select('*')
       .eq('status', 'aberta')
       .order('iniciada_em', { ascending: false })
-      .limit(1)
-      .maybeSingle()
-    return (data as InspecaoAberta) ?? null
+    return (data as InspecaoAberta[]) ?? []
   }, [])
 
   const cancelarAberta = useCallback(async (aberta: InspecaoAberta) => {
@@ -141,8 +140,8 @@ export function useInspecao() {
       finalizada_em: new Date().toISOString(),
     }).eq('id', aberta.id)
     await supabase.from('historico').insert({
-      descricao: `Inspeção #${aberta.numero} cancelada (substituída por nova inspeção)`,
-      responsavel: user?.email ?? 'sistema',
+      descricao: `Inspeção #${aberta.numero} (${aberta.responsavel}) cancelada (substituída por nova)`,
+      responsavel: aberta.responsavel || user?.email || 'sistema',
       user_id: user!.id,
     })
   }, [])
@@ -367,5 +366,5 @@ export function useInspecao() {
 
   const reiniciar = () => setState(initial)
 
-  return { state, iniciar, retomar, buscarAberta, cancelarAberta, confirmar, baixarEndereco, encerrar, reiniciar, registrarExtra }
+  return { state, iniciar, retomar, buscarAbertas, cancelarAberta, confirmar, baixarEndereco, encerrar, reiniciar, registrarExtra }
 }

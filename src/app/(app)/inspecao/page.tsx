@@ -40,20 +40,20 @@ const novoItemVazio = {
 
 export default function InspecaoPage() {
   const { itens, loading, addItem } = useItens()
-  const { state, iniciar, retomar, buscarAberta, cancelarAberta, confirmar, baixarEndereco, encerrar, reiniciar, registrarExtra } = useInspecao()
+  const { state, iniciar, retomar, buscarAbertas, cancelarAberta, confirmar, baixarEndereco, encerrar, reiniciar, registrarExtra } = useInspecao()
   const { toast } = useToast()
 
-  // Inspeção aberta no banco (para retomar ou avisar antes de abrir nova)
-  const [aberta, setAberta] = useState<InspecaoAberta | null>(null)
+  // Inspeções em aberto no banco — várias simultâneas, uma por responsável
+  const [abertas, setAbertas] = useState<InspecaoAberta[]>([])
   const [confirmNova, setConfirmNova] = useState(false)
   const [iniciando, setIniciando] = useState(false)
 
   useEffect(() => {
     if (state.phase !== 'idle') return
     let ativo = true
-    buscarAberta().then(a => { if (ativo) setAberta(a) })
+    buscarAbertas().then(a => { if (ativo) setAbertas(a) })
     return () => { ativo = false }
-  }, [state.phase, buscarAberta])
+  }, [state.phase, buscarAbertas])
   const [responsavel, setResponsavel] = useState('')
   const [validadeEncontrada, setValidadeEncontrada] = useState('') // ISO YYYY-MM-DD
   const [validadeTexto, setValidadeTexto] = useState('')           // exibição DD/MM/AAAA
@@ -315,28 +315,33 @@ export default function InspecaoPage() {
     setSavingNovo(false)
   }
 
+  // Inspeção em aberto do MESMO responsável (comparação sem caixa/espaços)
+  const abertaMesmoResp = abertas.find(
+    a => a.responsavel.trim().toLowerCase() === responsavel.trim().toLowerCase()
+  ) ?? null
+
   const handleIniciar = async () => {
     if (!responsavel || entradasFiltradas.length === 0) return
-    if (aberta) { setConfirmNova(true); return }
+    // Só bloqueia se o próprio responsável já tem uma inspeção aberta
+    if (abertaMesmoResp) { setConfirmNova(true); return }
     await doIniciar()
   }
 
   const doIniciar = async () => {
     setIniciando(true)
-    if (aberta) await cancelarAberta(aberta)
+    if (abertaMesmoResp) await cancelarAberta(abertaMesmoResp)
     const { error } = await iniciar(entradasFiltradas, responsavel)
     setIniciando(false)
     setConfirmNova(false)
     if (error) {
       toast('Erro ao iniciar inspeção — verifique a migration 005', 'error')
     } else {
-      setAberta(null)
+      setAbertas([])
       limparEstado()
     }
   }
 
-  const handleRetomar = () => {
-    if (!aberta) return
+  const handleRetomar = (aberta: InspecaoAberta) => {
     retomar(aberta, itens)
     limparEstado()
   }
@@ -418,25 +423,32 @@ export default function InspecaoPage() {
         <p className="text-sm text-gray-400">Filtre por rua e zona antes de iniciar</p>
       </div>
 
-      {/* Inspeção em aberto — retomar */}
-      {aberta && (
+      {/* Inspeções em aberto — retomar (uma por responsável) */}
+      {abertas.length > 0 && (
         <div className="bg-blue-50 rounded-xl border border-blue-200 p-5 shadow-sm flex flex-col gap-3">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-extrabold text-blue-800">Inspeção #{aberta.numero} em aberto</span>
-                <span className="text-[10px] font-bold bg-blue-600 text-white px-2 py-0.5 rounded-full">
-                  {aberta.atual}/{aberta.fila.length}
-                </span>
-              </div>
-              <p className="text-xs text-blue-600 mt-1">
-                Iniciada por <strong>{aberta.responsavel}</strong> em {fmtDateTime(aberta.iniciada_em)}
-              </p>
-            </div>
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-extrabold text-blue-800">
+              {abertas.length === 1 ? 'Inspeção em aberto' : `${abertas.length} inspeções em aberto`}
+            </span>
           </div>
-          <Button variant="primary" onClick={handleRetomar} className="w-full justify-center py-2.5">
-            ▶ Retomar de onde parou
-          </Button>
+          {abertas.map(a => (
+            <div key={a.id} className="flex items-center justify-between gap-3 bg-white rounded-lg border border-blue-100 px-4 py-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-sm font-bold text-gray-800">Inspeção #{a.numero}</span>
+                  <span className="text-[10px] font-bold bg-blue-600 text-white px-2 py-0.5 rounded-full">
+                    {a.atual}/{a.fila.length}
+                  </span>
+                </div>
+                <p className="text-xs text-gray-500 mt-0.5 truncate">
+                  <strong>{a.responsavel}</strong> · {fmtDateTime(a.iniciada_em)}
+                </p>
+              </div>
+              <Button variant="primary" size="sm" onClick={() => handleRetomar(a)} className="flex-shrink-0">
+                ▶ Retomar
+              </Button>
+            </div>
+          ))}
         </div>
       )}
 
@@ -652,24 +664,30 @@ export default function InspecaoPage() {
         )}
       </div>
 
-      {/* Modal — já existe inspeção em aberto */}
-      <Modal open={confirmNova} onClose={() => setConfirmNova(false)} title="Inspeção em Aberto">
+      {/* Modal — o mesmo responsável já tem inspeção em aberto */}
+      <Modal open={confirmNova} onClose={() => setConfirmNova(false)} title="Responsável com inspeção em aberto">
         <div className="flex flex-col gap-4">
           <p className="text-sm text-gray-600">
-            Já existe a <strong>Inspeção #{aberta?.numero}</strong> em aberto, iniciada por{' '}
-            <strong>{aberta?.responsavel}</strong> em {aberta ? fmtDateTime(aberta.iniciada_em) : ''} —
-            progresso {aberta?.atual}/{aberta?.fila.length} endereços.
+            <strong>{abertaMesmoResp?.responsavel}</strong> já tem a <strong>Inspeção #{abertaMesmoResp?.numero}</strong> em
+            aberto (progresso {abertaMesmoResp?.atual}/{abertaMesmoResp?.fila.length}, iniciada em{' '}
+            {abertaMesmoResp ? fmtDateTime(abertaMesmoResp.iniciada_em) : ''}).
           </p>
+          <div className="rounded-lg border border-blue-100 bg-blue-50 p-3">
+            <p className="text-xs text-blue-700">
+              Para continuar a anterior, feche esta janela e use <strong>▶ Retomar</strong>.
+              Outros responsáveis podem manter suas inspeções abertas normalmente.
+            </p>
+          </div>
           <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
             <p className="text-xs text-amber-700">
-              Ao abrir uma nova inspeção, a inspeção em aberto será <strong>cancelada</strong> e o
-              progresso restante não poderá ser retomado. Deseja continuar?
+              Ao abrir uma nova para este responsável, a Inspeção #{abertaMesmoResp?.numero} será
+              <strong> cancelada</strong> e o progresso restante não poderá ser retomado.
             </p>
           </div>
           <div className="flex justify-end gap-3">
             <Button variant="ghost" onClick={() => setConfirmNova(false)}>Voltar</Button>
             <Button variant="danger" onClick={doIniciar} disabled={iniciando}>
-              {iniciando ? 'Abrindo…' : 'Cancelar aberta e iniciar nova'}
+              {iniciando ? 'Abrindo…' : 'Cancelar anterior e iniciar nova'}
             </Button>
           </div>
         </div>
