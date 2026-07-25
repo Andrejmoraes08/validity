@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { useToast } from '@/components/layout/Toast'
 import { getZone } from '@/lib/zones'
+import { fmtDateTime } from '@/lib/utils'
 import type { Item } from '@/lib/types'
 
 type StatusFilter = 'todos' | 'ativo' | 'segregado' | 'bloqueado' | 'baixado'
@@ -166,7 +167,7 @@ export default function EstoquePage() {
           <table className="w-full text-xs">
             <thead className="bg-gray-50 border-b border-gray-100">
               <tr>
-                {['SKU', 'Descrição', 'Lote', 'End. Picking', 'End. Pulmão', 'Qtd', 'Validade', 'Status', 'Ações'].map(h => (
+                {['SKU', 'Descrição', 'Lote', 'End. Picking', 'End. Pulmão', 'Qtd', 'Validade', 'Últ. Inspeção', 'Status', 'Ações'].map(h => (
                   <th key={h} className="px-4 py-3 text-left text-gray-500 font-semibold text-[11px] uppercase tracking-wide whitespace-nowrap">{h}</th>
                 ))}
               </tr>
@@ -190,6 +191,16 @@ export default function EstoquePage() {
                     }
                   </td>
                   <td className="px-4 py-3"><ZoneCell validade={item.validade} /></td>
+                  <td className="px-4 py-3 whitespace-nowrap">
+                    {item.ultima_inspecao ? (
+                      <div className="flex flex-col">
+                        <span className="text-gray-600 font-mono text-[11px]">{fmtDateTime(item.ultima_inspecao)}</span>
+                        {item.inspecionado_por && <span className="text-gray-400 text-[10px] truncate max-w-[110px]">{item.inspecionado_por}</span>}
+                      </div>
+                    ) : (
+                      <span className="text-gray-300 text-[11px]">— nunca</span>
+                    )}
+                  </td>
                   <td className="px-4 py-3">
                     <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${statusColors[item.status]}`}>
                       {item.status}
