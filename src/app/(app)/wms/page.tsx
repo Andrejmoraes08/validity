@@ -4,6 +4,7 @@ import { useItens } from '@/hooks/useItens'
 import { useToast } from '@/components/layout/Toast'
 import { Button } from '@/components/ui/Button'
 import { supabase } from '@/lib/supabase'
+import { semControleValidade } from '@/lib/utils'
 
 export default function WmsPage() {
   const { fetchItens } = useItens()
@@ -12,7 +13,7 @@ export default function WmsPage() {
 
   const [status, setStatus] = useState<{
     atualizados: number; criados: number; erros: number; ignoradas: number
-    semValidade: number; exemploInvalido: string; total: number
+    semValidade: number; excluidos: number; exemploInvalido: string; total: number
   } | null>(null)
   const [loading, setLoading] = useState(false)
   const [progresso, setProgresso] = useState<{ atual: number; total: number } | null>(null)
@@ -95,7 +96,7 @@ export default function WmsPage() {
       return key !== undefined ? r[key] : undefined
     }
 
-    let atualizados = 0, criados = 0, erros = 0, ignoradas = 0, semValidade = 0
+    let atualizados = 0, criados = 0, erros = 0, ignoradas = 0, semValidade = 0, excluidos = 0
     let exemploInvalido = ''
     let linha = 0
     setProgresso({ atual: 0, total: rows.length })
@@ -121,6 +122,10 @@ export default function WmsPage() {
       const isPicking = (nivel || '0') === '0'
 
       if (!sku || !endereco) { ignoradas++; continue }
+
+      // Bebidas de validade indeterminada (destilados/afins): não entram no controle
+      // via importação. A inspeção continua livre para registrar qualquer item.
+      if (semControleValidade(descricao)) { excluidos++; continue }
 
       if (!validadeISO) {
         semValidade++
@@ -157,12 +162,12 @@ export default function WmsPage() {
     }
 
     await supabase.from('historico').insert({
-      descricao: `Importação de endereços: ${rows.length} linhas — ${atualizados} atualizados, ${criados} criados, ${ignoradas} ignoradas, ${semValidade} sem validade válida, ${erros} erros`,
+      descricao: `Importação de endereços: ${rows.length} linhas — ${atualizados} atualizados, ${criados} criados, ${excluidos} fora do controle, ${ignoradas} ignoradas, ${semValidade} sem validade válida, ${erros} erros`,
       responsavel: user!.email ?? 'sistema',
       user_id: user!.id,
     })
 
-    setStatus({ atualizados, criados, erros, ignoradas, semValidade, exemploInvalido, total: rows.length })
+    setStatus({ atualizados, criados, erros, ignoradas, semValidade, excluidos, exemploInvalido, total: rows.length })
     setProgresso(null)
     setLoading(false)
     fetchItens()
@@ -225,6 +230,7 @@ export default function WmsPage() {
                 <span className="bg-gray-100 text-gray-700 px-2 py-1 rounded font-semibold">{status.total} linhas</span>
                 <span className="bg-blue-50 text-blue-700 px-2 py-1 rounded font-semibold">✓ {status.atualizados} atualizados</span>
                 <span className="bg-green-50 text-green-700 px-2 py-1 rounded font-semibold">+ {status.criados} criados</span>
+                {status.excluidos > 0 && <span className="bg-purple-50 text-purple-700 px-2 py-1 rounded font-semibold">🚫 {status.excluidos} fora do controle</span>}
                 {status.ignoradas > 0 && <span className="bg-amber-50 text-amber-700 px-2 py-1 rounded font-semibold">⊘ {status.ignoradas} ignoradas</span>}
                 {status.semValidade > 0 && (
                   <span className="bg-amber-100 text-amber-800 px-2 py-1 rounded font-semibold">
@@ -236,10 +242,18 @@ export default function WmsPage() {
             )}
           </div>
 
-          <p className="text-[11px] text-gray-400 border-t border-gray-100 pt-4">
-            Endereços já cadastrados são atualizados (validade + quantidade). Endereços novos são criados com lote <span className="font-mono">S/L</span>.
-            Para ajustes pontuais, use a aba <strong>Estoque</strong>.
-          </p>
+          <div className="border-t border-gray-100 pt-4 flex flex-col gap-2">
+            <p className="text-[11px] text-gray-400">
+              Endereços já cadastrados são atualizados (validade + quantidade). Endereços novos são criados com lote <span className="font-mono">S/L</span>.
+              Para ajustes pontuais, use a aba <strong>Estoque</strong>.
+            </p>
+            <p className="text-[11px] text-purple-500">
+              🚫 <strong>Fora do controle:</strong> destilados e bebidas de validade indeterminada (whisky, gin, vodka, cachaça,
+              aguardente, rum, conhaque, tequila, vinho, aperitivo, espumante/champagne com álcool, catuaba, Licor 43, Amarula)
+              são pulados na importação. Exceções com validade (sem álcool, coquetéis, RTD/lata) entram normalmente.
+              <strong> A inspeção não é afetada</strong> — o inspetor pode cadastrar qualquer item.
+            </p>
+          </div>
         </div>
       </div>
     </div>

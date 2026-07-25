@@ -29,3 +29,31 @@ export function normalizarEndereco(e: string): string {
     .map(p => (p || '0').replace(/^0+(?=\d)/, ''))
     .join(' - ')
 }
+
+// Bebidas de validade indeterminada — destilados e afins.
+// USO EXCLUSIVO DA IMPORTAÇÃO WMS: itens assim não são recadastrados na carga.
+// NÃO aplicar nas inspeções — o inspetor pode registrar qualquer item livremente.
+export function semControleValidade(descricao: string): boolean {
+  const d = (descricao || '').toUpperCase().trim()
+  if (!d) return false
+
+  // Exceções que TÊM validade (baixo teor / RTD / sem álcool / coquetel) — sempre mantidas
+  const excecoes = [
+    'S/AL', 'S/A ', 'SEM ALCOOL', 'ZERO',        // sem álcool
+    'SPRITZ', 'TONICA', '& TONIC', 'COOLER',     // prontos para beber
+    'COQUET', 'CLERICOT', 'MOJITO', 'LOVIN',     // coquetéis / marcas RTD
+  ]
+  if (excecoes.some(e => d.includes(e))) return false
+
+  // Marcas/produtos específicos sem controle (independe da posição no texto)
+  const contem = ['CATUABA', 'AMARULA', 'LICOR 43']
+  if (contem.some(c => d.includes(c))) return true
+
+  // Categorias por prefixo da descrição
+  const prefixos = [
+    'WHISKY', 'VODKA', 'CACHA', 'AGUARDENTE', 'CONHAQUE', 'TEQUILA',
+    'APERITIVO', 'CHAMPAGNE', 'ESPUMANTE', 'FRISANTE', 'PROSECCO',
+    'GIN ', 'RUM ', 'V ',  // "GIN ", "RUM " e "V origem" exigem espaço (não pegam VINAGRE/VERMUTE/VODKA)
+  ]
+  return prefixos.some(p => d.startsWith(p))
+}
