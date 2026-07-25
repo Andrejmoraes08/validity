@@ -13,6 +13,10 @@ import type { Item } from '@/lib/types'
 
 type StatusFilter = 'todos' | 'ativo' | 'segregado' | 'bloqueado' | 'baixado'
 type EnderecoFilter = '' | 'frac' | 'gran'
+type InspecaoFilter = '' | 'nunca' | '30' | '60' | '90'
+type Ordenacao = 'validade' | 'inspecao_antiga' | 'inspecao_recente'
+
+const DIA_MS = 86400000
 
 export default function EstoquePage() {
   const { itens, loading, addItem, updateItem, deleteItem } = useItens()
@@ -22,6 +26,8 @@ export default function EstoquePage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('ativo')
   const [zoneFilter, setZoneFilter] = useState('')
   const [filtroEndereco, setFiltroEndereco] = useState<EnderecoFilter>('')
+  const [filtroInspecao, setFiltroInspecao] = useState<InspecaoFilter>('')
+  const [ordenacao, setOrdenacao] = useState<Ordenacao>('validade')
   const [showForm, setShowForm] = useState(false)
   const [editItem, setEditItem] = useState<Item | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Item | null>(null)
@@ -49,11 +55,24 @@ export default function EstoquePage() {
   }, [itens])
 
   const filtered = useMemo(() => {
-    return itens.filter(i => {
+    const agora = Date.now()
+    const lista = itens.filter(i => {
       if (statusFilter !== 'todos' && i.status !== statusFilter) return false
       if (zoneFilter && getZone(i.validade).name !== zoneFilter) return false
       if (filtroEndereco === 'frac' && !i.endereco_frac) return false
       if (filtroEndereco === 'gran' && !i.endereco_gran) return false
+      if (filtroInspecao) {
+        if (filtroInspecao === 'nunca') {
+          if (i.ultima_inspecao) return false
+        } else {
+          // "há mais de N dias" — inclui os nunca inspecionados (mais críticos)
+          const dias = Number(filtroInspecao)
+          if (i.ultima_inspecao) {
+            const idadeDias = (agora - new Date(i.ultima_inspecao).getTime()) / DIA_MS
+            if (idadeDias < dias) return false
+          }
+        }
+      }
       if (search) {
         const q = search.toLowerCase()
         if (!i.sku.toLowerCase().includes(q) &&
@@ -64,7 +83,14 @@ export default function EstoquePage() {
       }
       return true
     })
-  }, [itens, statusFilter, zoneFilter, search, filtroEndereco])
+
+    if (ordenacao !== 'validade') {
+      // Ordena por data de inspeção; "nunca" (sem data) = 0, sempre no topo da mais antiga
+      const ts = (i: Item) => i.ultima_inspecao ? new Date(i.ultima_inspecao).getTime() : 0
+      lista.sort((a, b) => ordenacao === 'inspecao_antiga' ? ts(a) - ts(b) : ts(b) - ts(a))
+    }
+    return lista
+  }, [itens, statusFilter, zoneFilter, search, filtroEndereco, filtroInspecao, ordenacao])
 
   const handleSave = async (data: Partial<Item>) => {
     if (editItem) {
@@ -148,8 +174,28 @@ export default function EstoquePage() {
           <option value="frac">Endereços de Picking</option>
           <option value="gran">Endereços de Pulmão</option>
         </select>
-        {(search || zoneFilter || statusFilter !== 'ativo' || filtroEndereco) && (
-          <Button variant="ghost" size="sm" onClick={() => { setSearch(''); setZoneFilter(''); setStatusFilter('ativo'); setFiltroEndereco('') }}>
+        <select
+          value={filtroInspecao}
+          onChange={e => setFiltroInspecao(e.target.value as InspecaoFilter)}
+          className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
+        >
+          <option value="">Inspeção: todas</option>
+          <option value="nunca">Nunca inspecionado</option>
+          <option value="30">Sem inspeção &gt; 30 dias</option>
+          <option value="60">Sem inspeção &gt; 60 dias</option>
+          <option value="90">Sem inspeção &gt; 90 dias</option>
+        </select>
+        <select
+          value={ordenacao}
+          onChange={e => setOrdenacao(e.target.value as Ordenacao)}
+          className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
+        >
+          <option value="validade">Ordenar: validade</option>
+          <option value="inspecao_antiga">Inspeção mais antiga primeiro</option>
+          <option value="inspecao_recente">Inspeção mais recente primeiro</option>
+        </select>
+        {(search || zoneFilter || statusFilter !== 'ativo' || filtroEndereco || filtroInspecao || ordenacao !== 'validade') && (
+          <Button variant="ghost" size="sm" onClick={() => { setSearch(''); setZoneFilter(''); setStatusFilter('ativo'); setFiltroEndereco(''); setFiltroInspecao(''); setOrdenacao('validade') }}>
             Limpar
           </Button>
         )}
