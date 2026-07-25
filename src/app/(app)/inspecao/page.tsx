@@ -9,6 +9,7 @@ import { getZone, diasParaVencer } from '@/lib/zones'
 import { fmtDateTime, normalizarEndereco } from '@/lib/utils'
 import { supabase } from '@/lib/supabase'
 import { useToast } from '@/components/layout/Toast'
+import { usePerfílContext } from '@/lib/perfil-context'
 import type { Item, ZoneName } from '@/lib/types'
 
 const ZONAS: { name: ZoneName; label: string; color: string; bg: string }[] = [
@@ -45,6 +46,7 @@ export default function InspecaoPage() {
   const { itens, loading, addItem } = useItens()
   const { state, iniciar, retomar, buscarAbertas, cancelarAberta, confirmar, baixarEndereco, encerrar, reiniciar, registrarExtra } = useInspecao()
   const { toast } = useToast()
+  const { can } = usePerfílContext()
 
   // Inspeções em aberto no banco — várias simultâneas, uma por responsável
   const [abertas, setAbertas] = useState<InspecaoAberta[]>([])
@@ -1347,20 +1349,22 @@ export default function InspecaoPage() {
             {/* Botões principais */}
             {!showSegregar && (
               <div className="flex flex-col gap-2 mt-2">
-                <div className="grid grid-cols-2 gap-3">
-                  <Button
-                    variant="danger"
-                    onClick={() => setShowSegregar(true)}
-                    disabled={processing || !validadeConfirmada || zeradoNaInspecao}
-                    className="justify-center py-3"
-                  >
-                    Segregar
-                  </Button>
+                <div className={can('inspecao.segregar') ? 'grid grid-cols-2 gap-3' : ''}>
+                  {can('inspecao.segregar') && (
+                    <Button
+                      variant="danger"
+                      onClick={() => setShowSegregar(true)}
+                      disabled={processing || !validadeConfirmada || zeradoNaInspecao}
+                      className="justify-center py-3"
+                    >
+                      Segregar
+                    </Button>
+                  )}
                   <Button
                     variant="primary"
                     onClick={handleConfirmarOk}
                     disabled={processing || (!validadeConfirmada && !zeradoNaInspecao)}
-                    className="justify-center py-3"
+                    className="justify-center py-3 w-full"
                   >
                     {processing ? 'Salvando…' : zeradoNaInspecao ? 'Confirmar saldo zero' : 'Confirmar OK'}
                   </Button>
@@ -1376,7 +1380,8 @@ export default function InspecaoPage() {
           </>
         )}
 
-        {/* Baixa de endereço — disponível em ambos os fluxos */}
+        {/* Baixa de endereço — disponível em ambos os fluxos (requer permissão) */}
+        {can('inspecao.baixar') && (
         <div className="border-t border-gray-100 pt-4">
           {!showBaixa ? (
             <button
@@ -1404,6 +1409,7 @@ export default function InspecaoPage() {
             </div>
           )}
         </div>
+        )}
       </div>
       {/* Modal — encerramento antecipado */}
       <Modal open={confirmEncerrar} onClose={() => setConfirmEncerrar(false)} title="Encerrar Inspeção">

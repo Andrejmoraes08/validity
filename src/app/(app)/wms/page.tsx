@@ -5,10 +5,12 @@ import { useToast } from '@/components/layout/Toast'
 import { Button } from '@/components/ui/Button'
 import { supabase } from '@/lib/supabase'
 import { semControleValidade } from '@/lib/utils'
+import { usePerfílContext } from '@/lib/perfil-context'
 
 export default function WmsPage() {
   const { fetchItens } = useItens()
   const { toast } = useToast()
+  const { can } = usePerfílContext()
   const valRef = useRef<HTMLInputElement>(null)
 
   const [status, setStatus] = useState<{
@@ -222,9 +224,10 @@ export default function WmsPage() {
           )}
 
           <div className="flex items-center gap-3 flex-wrap">
-            <Button variant="primary" onClick={() => valRef.current?.click()} disabled={loading}>
+            <Button variant="primary" onClick={() => valRef.current?.click()} disabled={loading || !can('wms.importar')}>
               {loading ? '⏳ Processando…' : '📋 Carregar planilha'}
             </Button>
+            {!can('wms.importar') && <span className="text-xs text-gray-400">Sem permissão para importar</span>}
             {status && (
               <div className="flex gap-2 flex-wrap text-xs">
                 <span className="bg-gray-100 text-gray-700 px-2 py-1 rounded font-semibold">{status.total} linhas</span>

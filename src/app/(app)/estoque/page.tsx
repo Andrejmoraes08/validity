@@ -9,6 +9,7 @@ import { Modal } from '@/components/ui/Modal'
 import { useToast } from '@/components/layout/Toast'
 import { getZone } from '@/lib/zones'
 import { fmtDateTime } from '@/lib/utils'
+import { usePerfílContext } from '@/lib/perfil-context'
 import type { Item } from '@/lib/types'
 
 type StatusFilter = 'todos' | 'ativo' | 'segregado' | 'bloqueado' | 'baixado'
@@ -21,6 +22,7 @@ const DIA_MS = 86400000
 export default function EstoquePage() {
   const { itens, loading, addItem, updateItem, deleteItem } = useItens()
   const { toast } = useToast()
+  const { can } = usePerfílContext()
 
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('ativo')
@@ -128,9 +130,11 @@ export default function EstoquePage() {
           <h1 className="text-xl font-extrabold text-gray-900">Estoque</h1>
           <p className="text-sm text-gray-400">{filtered.length} itens exibidos</p>
         </div>
-        <Button variant="primary" onClick={() => { setEditItem(null); setShowForm(true) }}>
-          + Cadastrar Item
-        </Button>
+        {can('estoque.cadastrar') && (
+          <Button variant="primary" onClick={() => { setEditItem(null); setShowForm(true) }}>
+            + Cadastrar Item
+          </Button>
+        )}
       </div>
 
       {/* Filtros */}
@@ -213,7 +217,8 @@ export default function EstoquePage() {
           <table className="w-full text-xs">
             <thead className="bg-gray-50 border-b border-gray-100">
               <tr>
-                {['SKU', 'Descrição', 'Lote', 'End. Picking', 'End. Pulmão', 'Qtd', 'Validade', 'Últ. Inspeção', 'Status', 'Ações'].map(h => (
+                {['SKU', 'Descrição', 'Lote', 'End. Picking', 'End. Pulmão', 'Qtd', 'Validade', 'Últ. Inspeção', 'Status',
+                  ...((can('estoque.editar') || can('estoque.excluir')) ? ['Ações'] : [])].map(h => (
                   <th key={h} className="px-4 py-3 text-left text-gray-500 font-semibold text-[11px] uppercase tracking-wide whitespace-nowrap">{h}</th>
                 ))}
               </tr>
@@ -252,18 +257,24 @@ export default function EstoquePage() {
                       {item.status}
                     </span>
                   </td>
-                  <td className="px-4 py-3">
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => { setEditItem(item); setShowForm(true) }}
-                        className="text-blue-500 hover:text-blue-700 font-semibold"
-                      >Editar</button>
-                      <button
-                        onClick={() => setDeleteTarget(item)}
-                        className="text-red-400 hover:text-red-600 font-semibold"
-                      >Excluir</button>
-                    </div>
-                  </td>
+                  {(can('estoque.editar') || can('estoque.excluir')) && (
+                    <td className="px-4 py-3">
+                      <div className="flex gap-2">
+                        {can('estoque.editar') && (
+                          <button
+                            onClick={() => { setEditItem(item); setShowForm(true) }}
+                            className="text-blue-500 hover:text-blue-700 font-semibold"
+                          >Editar</button>
+                        )}
+                        {can('estoque.excluir') && (
+                          <button
+                            onClick={() => setDeleteTarget(item)}
+                            className="text-red-400 hover:text-red-600 font-semibold"
+                          >Excluir</button>
+                        )}
+                      </div>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>

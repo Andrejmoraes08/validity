@@ -7,11 +7,13 @@ import { Modal } from '@/components/ui/Modal'
 import { useToast } from '@/components/layout/Toast'
 import { supabase } from '@/lib/supabase'
 import { fmtDate, fmtDateTime } from '@/lib/utils'
+import { usePerfílContext } from '@/lib/perfil-context'
 import type { Baixa, Item } from '@/lib/types'
 
 export default function BloqueiosPage() {
   const { itens, loading, baixarItem } = useItens()
   const { toast } = useToast()
+  const { can } = usePerfílContext()
   const [tab, setTab] = useState<'bloqueados' | 'baixas'>('bloqueados')
   const [baixas, setBaixas] = useState<Baixa[]>([])
   const [baixaTarget, setBaixaTarget] = useState<Item | null>(null)
@@ -69,7 +71,7 @@ export default function BloqueiosPage() {
             <table className="w-full text-xs">
               <thead className="bg-gray-50 border-b border-gray-100">
                 <tr>
-                  {['SKU', 'Descrição', 'Lote', 'Qtd', 'Validade', 'Bloqueado em', 'Por', 'Ação'].map(h => (
+                  {['SKU', 'Descrição', 'Lote', 'Qtd', 'Validade', 'Bloqueado em', 'Por', ...(can('bloqueios.baixar') ? ['Ação'] : [])].map(h => (
                     <th key={h} className="px-4 py-3 text-left text-gray-400 font-semibold text-[11px] uppercase">{h}</th>
                   ))}
                 </tr>
@@ -84,9 +86,11 @@ export default function BloqueiosPage() {
                     <td className="px-4 py-3"><ZoneCell validade={item.validade} /></td>
                     <td className="px-4 py-3 text-gray-500">{item.bloqueado_em ? fmtDateTime(item.bloqueado_em) : '—'}</td>
                     <td className="px-4 py-3 text-gray-500">{item.bloqueado_por || '—'}</td>
-                    <td className="px-4 py-3">
-                      <Button size="sm" variant="primary" onClick={() => setBaixaTarget(item)}>Registrar Baixa</Button>
-                    </td>
+                    {can('bloqueios.baixar') && (
+                      <td className="px-4 py-3">
+                        <Button size="sm" variant="primary" onClick={() => setBaixaTarget(item)}>Registrar Baixa</Button>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>

@@ -9,7 +9,7 @@ import { TabNav } from '@/components/layout/TabNav'
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { user, loading: authLoading } = useAuth()
-  const { perfil, loading: perfilLoading, isAdmin, tabsPermitidas, primeiraTab } = usePerfil(user)
+  const { perfil, loading: perfilLoading, isAdmin, tabsPermitidas, permissoes, can, primeiraTab } = usePerfil(user)
   const router = useRouter()
   const pathname = usePathname()
 
@@ -45,7 +45,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   )
 
   return (
-    <PerfilContext.Provider value={{ perfil, isAdmin, tabsPermitidas }}>
+    <PerfilContext.Provider value={{ perfil, isAdmin, tabsPermitidas, permissoes, can }}>
       <Topbar />
       <TabNav tabsPermitidas={tabsPermitidas} />
       <main className="max-w-[1600px] mx-auto px-6 py-6">{children}</main>

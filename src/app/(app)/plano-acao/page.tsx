@@ -7,11 +7,13 @@ import { Modal } from '@/components/ui/Modal'
 import { useToast } from '@/components/layout/Toast'
 import { diasParaVencer, getZone } from '@/lib/zones'
 import { fmtDate, fmtDateTime } from '@/lib/utils'
+import { usePerfílContext } from '@/lib/perfil-context'
 import type { Item } from '@/lib/types'
 
 export default function PlanoAcaoPage() {
   const { itens, loading, bloquearItem, estornarItem } = useItens()
   const { toast } = useToast()
+  const { can } = usePerfílContext()
   const [bloqueioTarget, setBloqueioTarget] = useState<Item | null>(null)
   const [estornoTarget, setEstornoTarget] = useState<Item | null>(null)
   const [responsavel, setResponsavel] = useState('')
@@ -238,7 +240,9 @@ export default function PlanoAcaoPage() {
                 <td className="px-4 py-3"><ZoneCell validade={item.validade} /></td>
                 {onBloqueio && (
                   <td className="px-4 py-3">
-                    <Button size="sm" variant="danger" onClick={() => onBloqueio(item)}>Bloquear</Button>
+                    {can('plano.bloquear')
+                      ? <Button size="sm" variant="danger" onClick={() => onBloqueio(item)}>Bloquear</Button>
+                      : <span className="text-[11px] text-gray-300">—</span>}
                   </td>
                 )}
               </tr>
@@ -259,6 +263,7 @@ export default function PlanoAcaoPage() {
       </div>
 
       {/* Segregados — aguardando confirmação de bloqueio */}
+      {can('plano.ver_segregados') && (
       <div className="bg-white rounded-xl border border-orange-100 shadow-sm overflow-hidden">
         <div className="flex items-center justify-between px-5 py-4 bg-orange-50 border-b border-orange-100">
           <div className="flex items-center gap-3">
@@ -266,9 +271,11 @@ export default function PlanoAcaoPage() {
             <h2 className="font-bold text-orange-700">Segregados na Inspeção — aguardando confirmação de bloqueio</h2>
             <span className="bg-orange-500 text-white text-[11px] font-bold px-2 py-0.5 rounded-full">{segregados.length}</span>
           </div>
-          <Button size="sm" variant="secondary" onClick={exportarSegregadosPDF}>
-            Exportar PDF
-          </Button>
+          {can('plano.exportar') && (
+            <Button size="sm" variant="secondary" onClick={exportarSegregadosPDF}>
+              Exportar PDF
+            </Button>
+          )}
         </div>
         <div className="overflow-x-auto">
           {segregados.length === 0 ? (
@@ -277,7 +284,8 @@ export default function PlanoAcaoPage() {
             <table className="w-full text-xs">
               <thead className="bg-gray-50 border-b border-gray-100">
                 <tr>
-                  {['SKU', 'Descrição', 'Lote', 'Endereço', 'Qtd', 'Validade', 'Segregado por', 'Em', 'Ação'].map(h => (
+                  {['SKU', 'Descrição', 'Lote', 'Endereço', 'Qtd', 'Validade', 'Segregado por', 'Em',
+                    ...((can('plano.bloquear') || can('plano.estornar')) ? ['Ação'] : [])].map(h => (
                     <th key={h} className="px-4 py-3 text-left text-gray-500 font-semibold text-[11px] uppercase tracking-wide">{h}</th>
                   ))}
                 </tr>
@@ -293,12 +301,14 @@ export default function PlanoAcaoPage() {
                     <td className="px-4 py-3"><ZoneCell validade={item.validade} /></td>
                     <td className="px-4 py-3 text-gray-500">{item.segregado_por || '—'}</td>
                     <td className="px-4 py-3 text-gray-500">{item.segregado_em ? fmtDateTime(item.segregado_em) : '—'}</td>
-                    <td className="px-4 py-3">
-                      <div className="flex gap-2">
-                        <Button size="sm" variant="danger" onClick={() => setBloqueioTarget(item)}>Confirmar Bloqueio</Button>
-                        <Button size="sm" variant="ghost" onClick={() => setEstornoTarget(item)}>Estornar</Button>
-                      </div>
-                    </td>
+                    {(can('plano.bloquear') || can('plano.estornar')) && (
+                      <td className="px-4 py-3">
+                        <div className="flex gap-2">
+                          {can('plano.bloquear') && <Button size="sm" variant="danger" onClick={() => setBloqueioTarget(item)}>Confirmar Bloqueio</Button>}
+                          {can('plano.estornar') && <Button size="sm" variant="ghost" onClick={() => setEstornoTarget(item)}>Estornar</Button>}
+                        </div>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
@@ -306,8 +316,10 @@ export default function PlanoAcaoPage() {
           )}
         </div>
       </div>
+      )}
 
       {/* Zona Vermelha */}
+      {can('plano.ver_zonas') && (
       <div className="bg-white rounded-xl border border-red-100 shadow-sm overflow-hidden">
         <div className="flex items-center justify-between px-5 py-4 bg-red-50 border-b border-red-100">
           <div className="flex items-center gap-3">
@@ -315,14 +327,18 @@ export default function PlanoAcaoPage() {
             <h2 className="font-bold text-red-700">Zona Crítica — Vencidos e &lt;30 dias</h2>
             <span className="bg-red-600 text-white text-[11px] font-bold px-2 py-0.5 rounded-full">{vermelhos.length}</span>
           </div>
-          <Button size="sm" variant="secondary" onClick={() => exportarPDF(vermelhos, 'Crítico')}>
-            Exportar PDF
-          </Button>
+          {can('plano.exportar') && (
+            <Button size="sm" variant="secondary" onClick={() => exportarPDF(vermelhos, 'Crítico')}>
+              Exportar PDF
+            </Button>
+          )}
         </div>
         <ItemTable items={vermelhos} onBloqueio={setBloqueioTarget} />
       </div>
+      )}
 
       {/* Zona Amarela */}
+      {can('plano.ver_zonas') && (
       <div className="bg-white rounded-xl border border-yellow-100 shadow-sm overflow-hidden">
         <div className="flex items-center justify-between px-5 py-4 bg-yellow-50 border-b border-yellow-100">
           <div className="flex items-center gap-3">
@@ -330,12 +346,15 @@ export default function PlanoAcaoPage() {
             <h2 className="font-bold text-yellow-700">Zona Atenção — 30 a 90 dias</h2>
             <span className="bg-yellow-500 text-white text-[11px] font-bold px-2 py-0.5 rounded-full">{amarelos.length}</span>
           </div>
-          <Button size="sm" variant="secondary" onClick={() => exportarPDF(amarelos, 'Atenção')}>
-            Exportar detalhes
-          </Button>
+          {can('plano.exportar') && (
+            <Button size="sm" variant="secondary" onClick={() => exportarPDF(amarelos, 'Atenção')}>
+              Exportar detalhes
+            </Button>
+          )}
         </div>
         <ItemTable items={amarelos} />
       </div>
+      )}
 
       {/* Modal de bloqueio */}
       <Modal open={!!bloqueioTarget} onClose={() => setBloqueioTarget(null)} title="Bloquear Item">

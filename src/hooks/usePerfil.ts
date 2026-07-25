@@ -12,6 +12,7 @@ export interface Perfil {
   nome: string
   role: Role
   tabs_permitidas: string[]
+  permissoes: string[]
   created_at: string
   updated_at: string
 }
@@ -26,7 +27,31 @@ export const TODAS_TABS = [
   { key: 'config',      label: 'Configurações' },
 ]
 
+// Catálogo de permissões granulares por ação, agrupadas pela aba.
+// O acesso à aba é dado por tabs_permitidas; estas restringem ações DENTRO da aba.
+export const TODAS_PERMISSOES: { key: string; label: string; tab: string; descricao?: string }[] = [
+  { key: 'plano.ver_zonas',      tab: 'plano-acao', label: 'Ver zonas crítica/atenção' },
+  { key: 'plano.ver_segregados', tab: 'plano-acao', label: 'Ver segregados' },
+  { key: 'plano.bloquear',       tab: 'plano-acao', label: 'Confirmar bloqueio' },
+  { key: 'plano.estornar',       tab: 'plano-acao', label: 'Estornar segregação' },
+  { key: 'plano.exportar',       tab: 'plano-acao', label: 'Exportar PDF' },
+  { key: 'inspecao.segregar',    tab: 'inspecao',   label: 'Segregar item' },
+  { key: 'inspecao.baixar',      tab: 'inspecao',   label: 'Baixar endereço' },
+  { key: 'estoque.cadastrar',    tab: 'estoque',    label: 'Cadastrar item' },
+  { key: 'estoque.editar',       tab: 'estoque',    label: 'Editar item' },
+  { key: 'estoque.excluir',      tab: 'estoque',    label: 'Excluir item' },
+  { key: 'bloqueios.baixar',     tab: 'bloqueios',  label: 'Registrar baixa (NF)' },
+  { key: 'wms.importar',         tab: 'wms',        label: 'Importar planilha' },
+]
+
+export const TODAS_PERMISSOES_KEYS = TODAS_PERMISSOES.map(p => p.key)
+
 const TABS_PADRAO_OPERADOR = ['dashboard', 'estoque', 'inspecao', 'wms']
+// Novo operador começa com permissões amplas; o admin restringe depois.
+const PERMISSOES_PADRAO_OPERADOR = [
+  'plano.ver_zonas', 'plano.ver_segregados', 'plano.exportar',
+  'inspecao.segregar', 'inspecao.baixar', 'wms.importar',
+]
 
 export function usePerfil(user: User | null) {
   const [perfil, setPerfil] = useState<Perfil | null>(null)
@@ -65,11 +90,12 @@ export function usePerfil(user: User | null) {
 
     const role: Role = !admins || admins.length === 0 ? 'admin' : 'operador'
     const tabs = role === 'admin' ? TODAS_TABS.map(t => t.key) : TABS_PADRAO_OPERADOR
+    const permissoes = role === 'admin' ? TODAS_PERMISSOES_KEYS : PERMISSOES_PADRAO_OPERADOR
 
     // 3. Tenta inserir (pode falhar por race condition em múltiplas abas)
     const { data: novo, error: insertError } = await supabase
       .from('perfis')
-      .insert({ user_id: u.id, email: u.email ?? '', role, tabs_permitidas: tabs })
+      .insert({ user_id: u.id, email: u.email ?? '', role, tabs_permitidas: tabs, permissoes })
       .select()
       .maybeSingle()
 
@@ -99,9 +125,12 @@ export function usePerfil(user: User | null) {
 
   const isAdmin = perfil?.role === 'admin'
   const tabsPermitidas = perfil?.tabs_permitidas ?? []
+  const permissoes = perfil?.permissoes ?? []
   const primeiraTab = tabsPermitidas[0] ?? 'dashboard'
+  // Admin pode tudo; operador precisa da permissão explícita
+  const can = (key: string) => isAdmin || permissoes.includes(key)
 
-  return { perfil, loading, isAdmin, tabsPermitidas, primeiraTab, reload: () => user && fetchOrCreate(user) }
+  return { perfil, loading, isAdmin, tabsPermitidas, permissoes, can, primeiraTab, reload: () => user && fetchOrCreate(user) }
 }
 
 export function usePerfis() {

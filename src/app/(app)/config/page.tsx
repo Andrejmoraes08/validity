@@ -1,6 +1,6 @@
 'use client'
 import { useState } from 'react'
-import { usePerfis, TODAS_TABS, type Perfil, type Role } from '@/hooks/usePerfil'
+import { usePerfis, TODAS_TABS, TODAS_PERMISSOES, type Perfil, type Role } from '@/hooks/usePerfil'
 import { usePerfílContext } from '@/lib/perfil-context'
 import { useToast } from '@/components/layout/Toast'
 import { Button } from '@/components/ui/Button'
@@ -201,6 +201,7 @@ export default function ConfigPage() {
       nome: editPerfil.nome,
       role: editPerfil.role,
       tabs_permitidas: editPerfil.tabs_permitidas,
+      permissoes: editPerfil.permissoes ?? [],
     })
     setSavingPerfil(false)
     if (error) toast('Erro ao salvar perfil', 'error')
@@ -212,6 +213,13 @@ export default function ConfigPage() {
     const atual = editPerfil.tabs_permitidas
     const novo = atual.includes(tab) ? atual.filter(t => t !== tab) : [...atual, tab]
     setEditPerfil({ ...editPerfil, tabs_permitidas: novo })
+  }
+
+  const togglePermissao = (key: string) => {
+    if (!editPerfil) return
+    const atual = editPerfil.permissoes ?? []
+    const novo = atual.includes(key) ? atual.filter(p => p !== key) : [...atual, key]
+    setEditPerfil({ ...editPerfil, permissoes: novo })
   }
 
   const roleLabel: Record<string, string> = { admin: 'Admin', operador: 'Operador' }
@@ -536,6 +544,44 @@ export default function ConfigPage() {
                 <p className="text-[11px] text-blue-500">Admin tem acesso a todas as abas automaticamente</p>
               )}
             </div>
+
+            {/* Permissões granulares por ação (só para operador) */}
+            {editPerfil.role === 'operador' && (
+              <div className="flex flex-col gap-2">
+                <label className="text-xs font-semibold text-gray-600">Ações permitidas</label>
+                <p className="text-[11px] text-gray-400 -mt-1">Dentro das abas liberadas, marque o que o operador pode fazer</p>
+                <div className="flex flex-col gap-3 mt-1">
+                  {TODAS_TABS.filter(t => editPerfil.tabs_permitidas.includes(t.key))
+                    .map(t => TODAS_PERMISSOES.filter(p => p.tab === t.key).length > 0 && (
+                      <div key={t.key} className="rounded-lg border border-gray-100 p-3">
+                        <div className="text-[11px] font-bold text-gray-500 uppercase tracking-wide mb-2">{t.label}</div>
+                        <div className="grid grid-cols-2 gap-1.5">
+                          {TODAS_PERMISSOES.filter(p => p.tab === t.key).map(p => {
+                            const ativo = (editPerfil.permissoes ?? []).includes(p.key)
+                            return (
+                              <button key={p.key}
+                                onClick={() => togglePermissao(p.key)}
+                                className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors text-left"
+                                style={ativo
+                                  ? { background: '#f0fdf4', color: '#15803d', borderColor: '#bbf7d0' }
+                                  : { background: '#f9fafb', color: '#9ca3af', borderColor: '#f3f4f6' }}>
+                                <span className={`w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 ${ativo ? 'bg-green-600 border-green-600' : 'border-gray-300'}`}>
+                                  {ativo && <span className="text-white text-[10px] font-bold">✓</span>}
+                                </span>
+                                {p.label}
+                              </button>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  {TODAS_TABS.filter(t => editPerfil.tabs_permitidas.includes(t.key) && TODAS_PERMISSOES.some(p => p.tab === t.key)).length === 0 && (
+                    <p className="text-[11px] text-gray-400">As abas liberadas não têm ações configuráveis.</p>
+                  )}
+                </div>
+              </div>
+            )}
+
             <div className="flex justify-end gap-3 pt-2">
               <Button variant="ghost" onClick={() => setEditPerfil(null)}>Cancelar</Button>
               <Button variant="primary" onClick={handleSavePerfil} disabled={savingPerfil}>
