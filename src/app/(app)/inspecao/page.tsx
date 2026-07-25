@@ -25,6 +25,9 @@ function extrairRua(endereco: string): string {
   return endereco.split('-')[0].trim()
 }
 
+const DIA_MS = 86400000
+type RecenciaInspecao = '' | 'nunca' | '30' | '60' | '90'
+
 // Lado da rua pela paridade do prédio (2º segmento): "6 - 53 - 4 - 0" → ímpar
 type LadoRua = 'par' | 'impar'
 function extrairLado(endereco: string): LadoRua | null {
@@ -88,6 +91,7 @@ export default function InspecaoPage() {
   const [zonasSelecionadas, setZonasSelecionadas] = useState<ZoneName[]>([])
   const [tiposSelecionados, setTiposSelecionados] = useState<TipoEndereco[]>([])
   const [ladosSelecionados, setLadosSelecionados] = useState<LadoRua[]>([])
+  const [recencia, setRecencia] = useState<RecenciaInspecao>('')
   const [incluirSaldoZero, setIncluirSaldoZero] = useState(false)
 
   // Monta fila expandida: cada endereço (frac e gran) é uma entrada independente
@@ -122,6 +126,7 @@ export default function InspecaoPage() {
   }, [todasEntradas])
 
   const entradasFiltradas = useMemo(() => {
+    const agora = Date.now()
     return todasEntradas.filter(e => {
       if (!incluirSaldoZero && e.item.quantidade === 0) return false
       if (tiposSelecionados.length > 0 && !tiposSelecionados.includes(e.tipo)) return false
@@ -135,9 +140,18 @@ export default function InspecaoPage() {
       if (zonasSelecionadas.length > 0) {
         if (!zonasSelecionadas.includes(getZone(e.item.validade).name)) return false
       }
+      if (recencia) {
+        const ui = e.item.ultima_inspecao
+        if (recencia === 'nunca') {
+          if (ui) return false
+        } else {
+          // "há mais de N dias" — inclui os nunca inspecionados (mais críticos)
+          if (ui && (agora - new Date(ui).getTime()) / DIA_MS < Number(recencia)) return false
+        }
+      }
       return true
     })
-  }, [todasEntradas, ruasSelecionadas, zonasSelecionadas, tiposSelecionados, ladosSelecionados, incluirSaldoZero])
+  }, [todasEntradas, ruasSelecionadas, zonasSelecionadas, tiposSelecionados, ladosSelecionados, recencia, incluirSaldoZero])
 
   const toggleRua = (rua: string) =>
     setRuasSelecionadas(prev => prev.includes(rua) ? prev.filter(r => r !== rua) : [...prev, rua])
@@ -539,6 +553,49 @@ export default function InspecaoPage() {
                   className="text-[11px] font-mono px-1.5 py-0.5 rounded"
                   style={{ background: ativo ? 'rgba(255,255,255,.25)' : 'rgba(0,0,0,.08)' }}
                 >
+                  {count}
+                </span>
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* Filtro por Última Inspeção — foco em endereços atrasados */}
+      <div className="bg-white rounded-xl border border-gray-100 p-5 shadow-sm flex flex-col gap-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <span className="text-sm font-bold text-gray-700">Filtrar por Última Inspeção</span>
+            <p className="text-xs text-gray-400 mt-0.5">Priorize endereços sem conferência recente</p>
+          </div>
+          {recencia && (
+            <button onClick={() => setRecencia('')} className="text-xs text-blue-500 hover:text-blue-700">Limpar</button>
+          )}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {([['', 'Todas'], ['nunca', 'Nunca inspecionado'], ['30', '> 30 dias'], ['60', '> 60 dias'], ['90', '> 90 dias']] as const).map(([val, label]) => {
+            const ativo = recencia === val
+            const count = val === ''
+              ? todasEntradas.filter(e => incluirSaldoZero || e.item.quantidade > 0).length
+              : todasEntradas.filter(e => {
+                  if (!incluirSaldoZero && e.item.quantidade === 0) return false
+                  const ui = e.item.ultima_inspecao
+                  if (val === 'nunca') return !ui
+                  return !ui || (Date.now() - new Date(ui).getTime()) / DIA_MS >= Number(val)
+                }).length
+            return (
+              <button
+                key={val}
+                onClick={() => setRecencia(val)}
+                className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-semibold border transition-colors"
+                style={ativo
+                  ? { background: '#7c3aed', color: '#fff', borderColor: '#7c3aed' }
+                  : { background: '#faf5ff', color: '#7c3aed', borderColor: '#e9d5ff' }
+                }
+              >
+                {label}
+                <span className="text-[11px] font-mono px-1.5 py-0.5 rounded"
+                  style={{ background: ativo ? 'rgba(255,255,255,.25)' : 'rgba(0,0,0,.06)' }}>
                   {count}
                 </span>
               </button>
