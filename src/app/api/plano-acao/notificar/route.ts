@@ -1,9 +1,11 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import nodemailer from 'nodemailer'
 
 // Notificação por e-mail das ações do Plano de Ação.
 // Envia para todos os usuários com acesso à aba "plano-acao".
-// Roda no servidor: usa service_role (RLS) + RESEND_API_KEY (envio).
+// Roda no servidor (Node): usa service_role (RLS) + SMTP (ex.: KingHost) para envio.
+export const runtime = 'nodejs'
 
 const ACOES: Record<string, { titulo: string; cor: string; verbo: string }> = {
   solicitar_bloqueio:  { titulo: 'Solicitação de Bloqueio', cor: '#dc2626', verbo: 'solicitou o bloqueio de' },
@@ -14,8 +16,13 @@ const ACOES: Record<string, { titulo: string; cor: string; verbo: string }> = {
 export async function POST(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-  const resendKey = process.env.RESEND_API_KEY
-  const from = process.env.RESEND_FROM || 'VALIDITY <onboarding@resend.dev>'
+
+  // SMTP (KingHost): host/porta/usuário/senha + remetente
+  const smtpHost = process.env.SMTP_HOST
+  const smtpPort = Number(process.env.SMTP_PORT || 587)
+  const smtpUser = process.env.SMTP_USER
+  const smtpPass = process.env.SMTP_PASS
+  const smtpFrom = process.env.SMTP_FROM || (smtpUser ? `VALIDITY <${smtpUser}>` : '')
 
   if (!url || !serviceKey) {
     return NextResponse.json({ error: 'Servidor sem configuração do Supabase' }, { status: 500 })
@@ -63,8 +70,8 @@ export async function POST(req: Request) {
     user_id: caller.user.id,
   })
 
-  // Sem chave Resend → estrutura pronta, mas não envia (degrada com aviso)
-  if (!resendKey) {
+  // Sem SMTP configurado → estrutura pronta, mas não envia (degrada com aviso)
+  if (!smtpHost || !smtpUser || !smtpPass) {
     return NextResponse.json({ ok: true, enviados: 0, destinatarios: destinatarios.length, semProvedor: true })
   }
   if (destinatarios.length === 0) {
@@ -92,20 +99,24 @@ export async function POST(req: Request) {
       </div>
     </div>`
 
-  const resp = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      from,
-      to: destinatarios,
+  try {
+    const transporter = nodemailer.createTransport({
+      host: smtpHost,
+      port: smtpPort,
+      secure: smtpPort === 465, // 465 = SSL; 587 = STARTTLS
+      auth: { user: smtpUser, pass: smtpPass },
+    })
+
+    await transporter.sendMail({
+      from: smtpFrom,
+      to: smtpFrom,            // remetente no "Para"
+      bcc: destinatarios,      // destinatários ocultos (privacidade entre usuários)
       subject: `[VALIDITY] ${acao.titulo} — ${sku} (${endereco})`,
       html,
-    }),
-  })
-
-  if (!resp.ok) {
-    const detalhe = await resp.text().catch(() => '')
-    return NextResponse.json({ error: `Falha no envio: ${detalhe.slice(0, 200)}` }, { status: 502 })
+    })
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'erro desconhecido'
+    return NextResponse.json({ error: `Falha no envio SMTP: ${msg}` }, { status: 502 })
   }
 
   return NextResponse.json({ ok: true, enviados: destinatarios.length, destinatarios: destinatarios.length })
