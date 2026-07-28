@@ -24,7 +24,7 @@ function parseFrom(raw: string): { nome: string; email: string } {
 
 interface EnvioResult { ok: boolean; semProvedor?: boolean; erro?: string }
 
-// Envio unificado: Brevo (API) se houver BREVO_API_KEY; senão SMTP; senão degrada.
+// Envio unificado: relay KingHost (PHP) → Brevo (API) → SMTP → degrada.
 async function enviarEmail(opts: { to: string[]; subject: string; html: string }): Promise<EnvioResult> {
   const brevoKey = process.env.BREVO_API_KEY
   const fromRaw = process.env.EMAIL_FROM || process.env.BREVO_FROM || process.env.SMTP_FROM
@@ -32,6 +32,29 @@ async function enviarEmail(opts: { to: string[]; subject: string; html: string }
   const from = parseFrom(fromRaw)
 
   if (opts.to.length === 0) return { ok: true }
+
+  // 0) Relay PHP hospedado no KingHost (envio sai de dentro do KingHost, via HTTPS)
+  const relayUrl = process.env.MAIL_RELAY_URL
+  const relaySecret = process.env.MAIL_RELAY_SECRET
+  if (relayUrl && relaySecret) {
+    try {
+      const resp = await fetch(relayUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ segredo: relaySecret, to: opts.to, subject: opts.subject, html: opts.html }),
+        signal: AbortSignal.timeout(10000),
+      })
+      const txt = await resp.text().catch(() => '')
+      let j: { ok?: boolean; erro?: string } = {}
+      try { j = JSON.parse(txt) } catch { /* resposta não-JSON */ }
+      if (!resp.ok || j.ok === false || j.erro) {
+        return { ok: false, erro: `Relay KingHost: ${(j.erro || txt || resp.status).toString().slice(0, 200)}` }
+      }
+      return { ok: true }
+    } catch (e) {
+      return { ok: false, erro: `Relay KingHost: ${e instanceof Error ? e.message : 'erro'}` }
+    }
+  }
 
   // 1) Brevo via API HTTP
   if (brevoKey && from.email) {
