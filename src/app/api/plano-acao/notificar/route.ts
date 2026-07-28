@@ -4,7 +4,9 @@ import nodemailer from 'nodemailer'
 
 // Notificação por e-mail das ações do Plano de Ação.
 // Envia para todos os usuários com acesso à aba "plano-acao".
-// Roda no servidor (Node): usa service_role (RLS) + SMTP (ex.: KingHost) para envio.
+// Roda no servidor (Node). Provedor de envio:
+//   1) Brevo via API HTTP (recomendado — funciona a partir da nuvem)
+//   2) SMTP (nodemailer) como fallback
 export const runtime = 'nodejs'
 
 const ACOES: Record<string, { titulo: string; cor: string; verbo: string }> = {
@@ -13,16 +15,73 @@ const ACOES: Record<string, { titulo: string; cor: string; verbo: string }> = {
   estorno:             { titulo: 'Estorno de Segregação',   cor: '#1f6feb', verbo: 'estornou a segregação de' },
 }
 
+// Extrai nome e e-mail de "Nome <email>" ou "email"
+function parseFrom(raw: string): { nome: string; email: string } {
+  const m = raw.match(/^\s*(.*?)\s*<([^>]+)>\s*$/)
+  if (m) return { nome: m[1] || 'VALIDITY', email: m[2].trim() }
+  return { nome: 'VALIDITY', email: raw.trim() }
+}
+
+interface EnvioResult { ok: boolean; semProvedor?: boolean; erro?: string }
+
+// Envio unificado: Brevo (API) se houver BREVO_API_KEY; senão SMTP; senão degrada.
+async function enviarEmail(opts: { to: string[]; subject: string; html: string }): Promise<EnvioResult> {
+  const brevoKey = process.env.BREVO_API_KEY
+  const fromRaw = process.env.EMAIL_FROM || process.env.BREVO_FROM || process.env.SMTP_FROM
+    || (process.env.SMTP_USER ? `VALIDITY <${process.env.SMTP_USER}>` : '')
+  const from = parseFrom(fromRaw)
+
+  if (opts.to.length === 0) return { ok: true }
+
+  // 1) Brevo via API HTTP
+  if (brevoKey && from.email) {
+    const resp = await fetch('https://api.brevo.com/v3/smtp/email', {
+      method: 'POST',
+      headers: { 'api-key': brevoKey, 'Content-Type': 'application/json', accept: 'application/json' },
+      body: JSON.stringify({
+        sender: { name: from.nome, email: from.email },
+        to: [{ email: from.email, name: from.nome }],
+        bcc: opts.to.map(email => ({ email })),
+        subject: opts.subject,
+        htmlContent: opts.html,
+      }),
+    })
+    if (!resp.ok) {
+      const detalhe = await resp.text().catch(() => '')
+      return { ok: false, erro: `Brevo: ${detalhe.slice(0, 200)}` }
+    }
+    return { ok: true }
+  }
+
+  // 2) SMTP (fallback)
+  const smtpHost = process.env.SMTP_HOST
+  const smtpUser = process.env.SMTP_USER
+  const smtpPass = process.env.SMTP_PASS
+  if (smtpHost && smtpUser && smtpPass) {
+    const smtpPort = Number(process.env.SMTP_PORT || 587)
+    try {
+      const transporter = nodemailer.createTransport({
+        host: smtpHost, port: smtpPort, secure: smtpPort === 465,
+        auth: { user: smtpUser, pass: smtpPass },
+        connectionTimeout: 8000, greetingTimeout: 8000, socketTimeout: 8000,
+      })
+      await transporter.sendMail({
+        from: fromRaw, to: from.email, bcc: opts.to,
+        subject: opts.subject, html: opts.html,
+      })
+      return { ok: true }
+    } catch (e) {
+      return { ok: false, erro: `SMTP: ${e instanceof Error ? e.message : 'erro'}` }
+    }
+  }
+
+  // 3) Nenhum provedor configurado
+  return { ok: true, semProvedor: true }
+}
+
 export async function POST(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-
-  // SMTP (KingHost): host/porta/usuário/senha + remetente
-  const smtpHost = process.env.SMTP_HOST
-  const smtpPort = Number(process.env.SMTP_PORT || 587)
-  const smtpUser = process.env.SMTP_USER
-  const smtpPass = process.env.SMTP_PASS
-  const smtpFrom = process.env.SMTP_FROM || (smtpUser ? `VALIDITY <${smtpUser}>` : '')
 
   if (!url || !serviceKey) {
     return NextResponse.json({ error: 'Servidor sem configuração do Supabase' }, { status: 500 })
@@ -41,33 +100,18 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => null)
   const acaoKey = String(body?.acao ?? '')
 
-  // Ação especial de teste: envia só para o próprio solicitante (não notifica a equipe)
+  // Ação especial de teste: envia só para o próprio solicitante
   if (acaoKey === 'teste') {
-    if (!smtpHost || !smtpUser || !smtpPass) {
-      return NextResponse.json({ ok: true, enviados: 0, semProvedor: true })
-    }
     const alvo = caller.user.email
     if (!alvo) return NextResponse.json({ error: 'Sua conta não tem e-mail' }, { status: 400 })
-    try {
-      const transporter = nodemailer.createTransport({
-        host: smtpHost, port: smtpPort, secure: smtpPort === 465,
-        auth: { user: smtpUser, pass: smtpPass },
-        connectionTimeout: 8000, greetingTimeout: 8000, socketTimeout: 8000,
-      })
-      await transporter.sendMail({
-        from: smtpFrom,
-        to: alvo,
-        subject: '[VALIDITY] E-mail de teste',
-        html: `<div style="font-family:Arial,sans-serif">
-          <h2 style="color:#16a34a">✓ SMTP funcionando</h2>
-          <p>Este é um e-mail de teste do VALIDITY. Se você recebeu, o envio de notificações do Plano de Ação está ativo.</p>
-          <p style="font-size:12px;color:#aaa">Enviado por ${caller.user.email} em ${new Date().toLocaleString('pt-BR')}</p>
-        </div>`,
-      })
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : 'erro desconhecido'
-      return NextResponse.json({ error: `Falha no envio SMTP: ${msg}` }, { status: 502 })
-    }
+    const html = `<div style="font-family:Arial,sans-serif">
+      <h2 style="color:#16a34a">✓ Envio funcionando</h2>
+      <p>Este é um e-mail de teste do VALIDITY. Se você recebeu, as notificações do Plano de Ação estão ativas.</p>
+      <p style="font-size:12px;color:#aaa">Enviado por ${caller.user.email} em ${new Date().toLocaleString('pt-BR')}</p>
+    </div>`
+    const r = await enviarEmail({ to: [alvo], subject: '[VALIDITY] E-mail de teste', html })
+    if (r.semProvedor) return NextResponse.json({ ok: true, enviados: 0, semProvedor: true })
+    if (!r.ok) return NextResponse.json({ error: `Falha no envio — ${r.erro}` }, { status: 502 })
     return NextResponse.json({ ok: true, enviados: 1, teste: alvo })
   }
 
@@ -101,14 +145,6 @@ export async function POST(req: Request) {
     user_id: caller.user.id,
   })
 
-  // Sem SMTP configurado → estrutura pronta, mas não envia (degrada com aviso)
-  if (!smtpHost || !smtpUser || !smtpPass) {
-    return NextResponse.json({ ok: true, enviados: 0, destinatarios: destinatarios.length, semProvedor: true })
-  }
-  if (destinatarios.length === 0) {
-    return NextResponse.json({ ok: true, enviados: 0, destinatarios: 0 })
-  }
-
   const html = `
     <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto">
       <div style="background:${acao.cor};color:#fff;padding:16px 20px;border-radius:8px 8px 0 0">
@@ -130,26 +166,13 @@ export async function POST(req: Request) {
       </div>
     </div>`
 
-  try {
-    const transporter = nodemailer.createTransport({
-      host: smtpHost,
-      port: smtpPort,
-      secure: smtpPort === 465, // 465 = SSL; 587 = STARTTLS
-      auth: { user: smtpUser, pass: smtpPass },
-      connectionTimeout: 8000, greetingTimeout: 8000, socketTimeout: 8000,
-    })
-
-    await transporter.sendMail({
-      from: smtpFrom,
-      to: smtpFrom,            // remetente no "Para"
-      bcc: destinatarios,      // destinatários ocultos (privacidade entre usuários)
-      subject: `[VALIDITY] ${acao.titulo} — ${sku} (${endereco})`,
-      html,
-    })
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : 'erro desconhecido'
-    return NextResponse.json({ error: `Falha no envio SMTP: ${msg}` }, { status: 502 })
-  }
+  const r = await enviarEmail({
+    to: destinatarios,
+    subject: `[VALIDITY] ${acao.titulo} — ${sku} (${endereco})`,
+    html,
+  })
+  if (r.semProvedor) return NextResponse.json({ ok: true, enviados: 0, destinatarios: destinatarios.length, semProvedor: true })
+  if (!r.ok) return NextResponse.json({ error: `Falha no envio — ${r.erro}` }, { status: 502 })
 
   return NextResponse.json({ ok: true, enviados: destinatarios.length, destinatarios: destinatarios.length })
 }
