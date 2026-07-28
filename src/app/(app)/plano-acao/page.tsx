@@ -8,6 +8,7 @@ import { useToast } from '@/components/layout/Toast'
 import { diasParaVencer, getZone } from '@/lib/zones'
 import { fmtDate, fmtDateTime } from '@/lib/utils'
 import { usePerfílContext } from '@/lib/perfil-context'
+import { supabase } from '@/lib/supabase'
 import type { Item } from '@/lib/types'
 
 export default function PlanoAcaoPage() {
@@ -16,7 +17,34 @@ export default function PlanoAcaoPage() {
   const { can } = usePerfílContext()
   const [bloqueioTarget, setBloqueioTarget] = useState<Item | null>(null)
   const [estornoTarget, setEstornoTarget] = useState<Item | null>(null)
+  const [solicitarTarget, setSolicitarTarget] = useState<Item | null>(null)
   const [responsavel, setResponsavel] = useState('')
+  const [obs, setObs] = useState('')
+  const [enviando, setEnviando] = useState(false)
+
+  // Dispara o e-mail de notificação para os usuários com acesso ao Plano de Ação
+  const notificar = async (acao: string, item: Item, resp: string, observacao = '') => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const res = await fetch('/api/plano-acao/notificar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token ?? ''}` },
+        body: JSON.stringify({
+          acao, responsavel: resp, obs: observacao,
+          item: {
+            sku: item.sku, descricao: item.descricao, validade: item.validade,
+            quantidade: item.quantidade, endereco: item.endereco_frac || item.endereco_gran,
+          },
+        }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) { toast(json.error ?? 'Ação registrada, mas o e-mail falhou', 'error'); return }
+      if (json.semProvedor) toast('Ação registrada — envio de e-mail ainda não configurado', 'info')
+      else toast(`E-mail enviado a ${json.enviados} usuário(s)`)
+    } catch {
+      toast('Ação registrada, mas o e-mail falhou', 'error')
+    }
+  }
 
   const ativos = useMemo(() => itens.filter(i => i.status === 'ativo'), [itens])
 
@@ -38,22 +66,43 @@ export default function PlanoAcaoPage() {
     [ativos]
   )
 
+  // Solicitar bloqueio (Zona Crítica): NÃO muda o status, só notifica por e-mail
+  const handleSolicitar = async () => {
+    if (!solicitarTarget || !responsavel) return
+    setEnviando(true)
+    await notificar('solicitar_bloqueio', solicitarTarget, responsavel, obs)
+    setEnviando(false)
+    setSolicitarTarget(null)
+    setResponsavel('')
+    setObs('')
+  }
+
   const handleBloqueio = async () => {
     if (!bloqueioTarget || !responsavel) return
-    const { error } = await bloquearItem(bloqueioTarget.id, responsavel)
-    if (error) toast('Erro ao bloquear item', 'error')
-    else toast(`${bloqueioTarget.sku} bloqueado`)
+    setEnviando(true)
+    const alvo = bloqueioTarget
+    const { error } = await bloquearItem(alvo.id, responsavel)
+    if (error) { toast('Erro ao bloquear item', 'error'); setEnviando(false); return }
+    toast(`${alvo.sku} bloqueado`)
+    await notificar('bloqueio_confirmado', alvo, responsavel, obs)
+    setEnviando(false)
     setBloqueioTarget(null)
     setResponsavel('')
+    setObs('')
   }
 
   const handleEstorno = async () => {
     if (!estornoTarget || !responsavel) return
-    const { error } = await estornarItem(estornoTarget.id, responsavel)
-    if (error) toast('Erro ao estornar segregação', 'error')
-    else toast(`${estornoTarget.sku} retornou ao estoque ativo`)
+    setEnviando(true)
+    const alvo = estornoTarget
+    const { error } = await estornarItem(alvo.id, responsavel)
+    if (error) { toast('Erro ao estornar segregação', 'error'); setEnviando(false); return }
+    toast(`${alvo.sku} retornou ao estoque ativo`)
+    await notificar('estorno', alvo, responsavel, obs)
+    setEnviando(false)
     setEstornoTarget(null)
     setResponsavel('')
+    setObs('')
   }
 
   const exportarPDF = async (items: Item[], zonaLabel: string) => {
@@ -304,8 +353,8 @@ export default function PlanoAcaoPage() {
                     {(can('plano.bloquear') || can('plano.estornar')) && (
                       <td className="px-4 py-3">
                         <div className="flex gap-2">
-                          {can('plano.bloquear') && <Button size="sm" variant="danger" onClick={() => setBloqueioTarget(item)}>Confirmar Bloqueio</Button>}
-                          {can('plano.estornar') && <Button size="sm" variant="ghost" onClick={() => setEstornoTarget(item)}>Estornar</Button>}
+                          {can('plano.bloquear') && <Button size="sm" variant="danger" onClick={() => { setBloqueioTarget(item); setResponsavel(''); setObs('') }}>Confirmar Bloqueio</Button>}
+                          {can('plano.estornar') && <Button size="sm" variant="ghost" onClick={() => { setEstornoTarget(item); setResponsavel(''); setObs('') }}>Estornar</Button>}
                         </div>
                       </td>
                     )}
@@ -333,7 +382,7 @@ export default function PlanoAcaoPage() {
             </Button>
           )}
         </div>
-        <ItemTable items={vermelhos} onBloqueio={setBloqueioTarget} />
+        <ItemTable items={vermelhos} onBloqueio={(i) => { setSolicitarTarget(i); setResponsavel(''); setObs('') }} />
       </div>
       )}
 
@@ -356,24 +405,59 @@ export default function PlanoAcaoPage() {
       </div>
       )}
 
+      {/* Modal de solicitação de bloqueio (Zona Crítica) — só notifica por e-mail */}
+      <Modal open={!!solicitarTarget} onClose={() => { setSolicitarTarget(null); setResponsavel(''); setObs('') }} title="Solicitar Bloqueio">
+        <p className="text-sm text-gray-600 mb-3">
+          Solicitando bloqueio de <strong>{solicitarTarget?.sku}</strong> — {solicitarTarget?.descricao}
+        </p>
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 mb-4">
+          <p className="text-xs text-amber-700">
+            O item <strong>não</strong> será bloqueado agora. Um e-mail será enviado aos usuários com
+            acesso ao Plano de Ação sinalizando a solicitação.
+          </p>
+        </div>
+        <div className="flex flex-col gap-1 mb-3">
+          <label className="text-xs font-semibold text-gray-600">Solicitante *</label>
+          <input type="text" value={responsavel} onChange={e => setResponsavel(e.target.value)}
+            placeholder="Seu nome"
+            className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
+        </div>
+        <div className="flex flex-col gap-1 mb-6">
+          <label className="text-xs font-semibold text-gray-400">Observação (opcional)</label>
+          <textarea value={obs} onChange={e => setObs(e.target.value)} rows={2}
+            placeholder="Motivo / instrução…"
+            className="border border-gray-200 rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:border-gray-300" />
+        </div>
+        <div className="flex justify-end gap-3">
+          <Button variant="ghost" onClick={() => { setSolicitarTarget(null); setResponsavel(''); setObs('') }}>Cancelar</Button>
+          <Button variant="danger" onClick={handleSolicitar} disabled={!responsavel || enviando}>
+            {enviando ? 'Enviando…' : 'Enviar Solicitação'}
+          </Button>
+        </div>
+      </Modal>
+
       {/* Modal de bloqueio */}
-      <Modal open={!!bloqueioTarget} onClose={() => setBloqueioTarget(null)} title="Bloquear Item">
-        <p className="text-sm text-gray-600 mb-4">
+      <Modal open={!!bloqueioTarget} onClose={() => setBloqueioTarget(null)} title="Confirmar Bloqueio">
+        <p className="text-sm text-gray-600 mb-3">
           Bloqueando <strong>{bloqueioTarget?.sku}</strong> — {bloqueioTarget?.descricao}
         </p>
-        <div className="flex flex-col gap-1 mb-6">
+        <p className="text-xs text-gray-400 mb-4">Ao confirmar, os usuários do Plano de Ação são notificados por e-mail.</p>
+        <div className="flex flex-col gap-1 mb-3">
           <label className="text-xs font-semibold text-gray-600">Responsável *</label>
-          <input
-            type="text"
-            value={responsavel}
-            onChange={e => setResponsavel(e.target.value)}
+          <input type="text" value={responsavel} onChange={e => setResponsavel(e.target.value)}
             placeholder="Nome do responsável"
-            className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
-          />
+            className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
+        </div>
+        <div className="flex flex-col gap-1 mb-6">
+          <label className="text-xs font-semibold text-gray-400">Observação (opcional)</label>
+          <textarea value={obs} onChange={e => setObs(e.target.value)} rows={2}
+            className="border border-gray-200 rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:border-gray-300" />
         </div>
         <div className="flex justify-end gap-3">
           <Button variant="ghost" onClick={() => setBloqueioTarget(null)}>Cancelar</Button>
-          <Button variant="danger" onClick={handleBloqueio} disabled={!responsavel}>Confirmar Bloqueio</Button>
+          <Button variant="danger" onClick={handleBloqueio} disabled={!responsavel || enviando}>
+            {enviando ? 'Processando…' : 'Confirmar Bloqueio'}
+          </Button>
         </div>
       </Modal>
 
@@ -385,22 +469,25 @@ export default function PlanoAcaoPage() {
         <div className="rounded-lg border border-blue-100 bg-blue-50 p-3 mb-4">
           <p className="text-xs text-blue-700">
             O item retornará ao <strong>estoque ativo</strong> e voltará a aparecer nas zonas do
-            Plano de Ação e nas próximas inspeções.
+            Plano de Ação e nas próximas inspeções. Os usuários do Plano de Ação são notificados por e-mail.
           </p>
         </div>
-        <div className="flex flex-col gap-1 mb-6">
+        <div className="flex flex-col gap-1 mb-3">
           <label className="text-xs font-semibold text-gray-600">Responsável *</label>
-          <input
-            type="text"
-            value={responsavel}
-            onChange={e => setResponsavel(e.target.value)}
+          <input type="text" value={responsavel} onChange={e => setResponsavel(e.target.value)}
             placeholder="Nome do responsável"
-            className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
-          />
+            className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
+        </div>
+        <div className="flex flex-col gap-1 mb-6">
+          <label className="text-xs font-semibold text-gray-400">Observação (opcional)</label>
+          <textarea value={obs} onChange={e => setObs(e.target.value)} rows={2}
+            className="border border-gray-200 rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:border-gray-300" />
         </div>
         <div className="flex justify-end gap-3">
           <Button variant="ghost" onClick={() => { setEstornoTarget(null); setResponsavel('') }}>Cancelar</Button>
-          <Button variant="primary" onClick={handleEstorno} disabled={!responsavel}>Confirmar Estorno</Button>
+          <Button variant="primary" onClick={handleEstorno} disabled={!responsavel || enviando}>
+            {enviando ? 'Processando…' : 'Confirmar Estorno'}
+          </Button>
         </div>
       </Modal>
     </div>
