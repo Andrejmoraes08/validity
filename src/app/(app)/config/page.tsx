@@ -54,6 +54,33 @@ export default function ConfigPage() {
   const [novaSenha, setNovaSenha] = useState('')
   const [alterandoSenha, setAlterandoSenha] = useState(false)
 
+  // Exclusão de usuário pelo admin
+  const [excluirTarget, setExcluirTarget] = useState<Perfil | null>(null)
+  const [excluindo, setExcluindo] = useState(false)
+
+  const handleExcluirUsuario = async () => {
+    if (!excluirTarget) return
+    setExcluindo(true)
+    const { data: { session } } = await supabase.auth.getSession()
+    const res = await fetch('/api/admin/usuarios', {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${session?.access_token ?? ''}`,
+      },
+      body: JSON.stringify({ user_id: excluirTarget.user_id }),
+    })
+    const json = await res.json().catch(() => ({}))
+    setExcluindo(false)
+    if (!res.ok) {
+      toast(json.error ?? 'Erro ao excluir usuário', 'error')
+      return
+    }
+    toast(`Usuário ${excluirTarget.email} excluído`)
+    setExcluirTarget(null)
+    reloadPerfis()
+  }
+
   const handleAlterarSenha = async () => {
     if (!senhaTarget || novaSenha.length < 6) return
     setAlterandoSenha(true)
@@ -304,6 +331,14 @@ export default function ConfigPage() {
                       <Button size="sm" variant="ghost" onClick={() => { setSenhaTarget(p); setNovaSenha('') }}>
                         Alterar senha
                       </Button>
+                      {p.role !== 'admin' && (
+                        <button
+                          onClick={() => setExcluirTarget(p)}
+                          className="text-xs font-semibold text-red-500 hover:text-red-700 px-3 py-1"
+                        >
+                          Excluir usuário
+                        </button>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -484,6 +519,29 @@ export default function ConfigPage() {
             <Button variant="ghost" onClick={() => { setSenhaTarget(null); setNovaSenha('') }}>Cancelar</Button>
             <Button variant="primary" onClick={handleAlterarSenha} disabled={alterandoSenha || novaSenha.length < 6}>
               {alterandoSenha ? 'Alterando…' : 'Alterar senha'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Modal excluir usuário */}
+      <Modal open={!!excluirTarget} onClose={() => setExcluirTarget(null)} title="Excluir Usuário">
+        <div className="flex flex-col gap-4">
+          <p className="text-sm text-gray-600">
+            Excluir <strong>{excluirTarget?.nome || excluirTarget?.email}</strong>?
+            <span className="block text-xs text-gray-400 font-mono mt-0.5">{excluirTarget?.email}</span>
+          </p>
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+            <p className="text-xs text-amber-700">
+              O <strong>login</strong> será removido e o usuário não poderá mais acessar. Os registros
+              que ele criou (itens, baixas, inspeções, histórico) são <strong>mantidos</strong> e
+              reatribuídos à sua conta de administrador.
+            </p>
+          </div>
+          <div className="flex justify-end gap-3">
+            <Button variant="ghost" onClick={() => setExcluirTarget(null)} disabled={excluindo}>Cancelar</Button>
+            <Button variant="danger" onClick={handleExcluirUsuario} disabled={excluindo}>
+              {excluindo ? 'Excluindo…' : 'Excluir usuário'}
             </Button>
           </div>
         </div>

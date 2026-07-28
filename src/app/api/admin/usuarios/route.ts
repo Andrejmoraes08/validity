@@ -146,3 +146,55 @@ export async function PATCH(req: Request) {
 
   return NextResponse.json({ ok: true })
 }
+
+// Exclui um usuário (exceto administradores)
+export async function DELETE(req: Request) {
+  const auth = await autorizar(req)
+  if (auth instanceof NextResponse) return auth
+  const { admin, caller } = auth
+
+  const body = await req.json().catch(() => null)
+  const userId = String(body?.user_id ?? '').trim()
+
+  if (!userId) {
+    return NextResponse.json({ error: 'Usuário não informado' }, { status: 400 })
+  }
+  if (userId === caller.id) {
+    return NextResponse.json({ error: 'Você não pode excluir a si mesmo' }, { status: 400 })
+  }
+
+  // Confere o alvo — administradores não podem ser excluídos
+  const { data: alvo } = await admin
+    .from('perfis')
+    .select('role, email')
+    .eq('user_id', userId)
+    .maybeSingle()
+
+  if (!alvo) {
+    return NextResponse.json({ error: 'Usuário não encontrado' }, { status: 404 })
+  }
+  if (alvo.role === 'admin') {
+    return NextResponse.json({ error: 'Administradores não podem ser excluídos' }, { status: 403 })
+  }
+
+  // Modelo compartilhado: reatribui ao admin os registros criados pelo usuário
+  // (preserva itens/baixas/histórico/inspeções e evita violação de FK ao remover o login)
+  for (const tabela of ['itens', 'baixas', 'historico', 'inspecoes', 'config']) {
+    await admin.from(tabela).update({ user_id: caller.id }).eq('user_id', userId)
+  }
+
+  // Remove o perfil e o usuário de autenticação
+  await admin.from('perfis').delete().eq('user_id', userId)
+  const { error: delErr } = await admin.auth.admin.deleteUser(userId)
+  if (delErr) {
+    return NextResponse.json({ error: delErr.message ?? 'Erro ao excluir usuário' }, { status: 400 })
+  }
+
+  await admin.from('historico').insert({
+    descricao: `Usuário ${alvo.email ?? userId} excluído pelo administrador`,
+    responsavel: caller.email ?? 'admin',
+    user_id: caller.id,
+  })
+
+  return NextResponse.json({ ok: true })
+}
