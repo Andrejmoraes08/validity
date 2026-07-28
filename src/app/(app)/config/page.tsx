@@ -58,6 +58,28 @@ export default function ConfigPage() {
   const [excluirTarget, setExcluirTarget] = useState<Perfil | null>(null)
   const [excluindo, setExcluindo] = useState(false)
 
+  // Teste de envio de e-mail (SMTP)
+  const [testandoEmail, setTestandoEmail] = useState(false)
+
+  const handleTesteEmail = async () => {
+    setTestandoEmail(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const res = await fetch('/api/plano-acao/notificar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token ?? ''}` },
+        body: JSON.stringify({ acao: 'teste' }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) toast(json.error ?? 'Falha no teste de e-mail', 'error')
+      else if (json.semProvedor) toast('SMTP ainda não configurado na Vercel (variáveis SMTP_*)', 'info')
+      else toast(`E-mail de teste enviado para ${json.teste}`)
+    } catch {
+      toast('Falha ao chamar o teste de e-mail', 'error')
+    }
+    setTestandoEmail(false)
+  }
+
   const handleExcluirUsuario = async () => {
     if (!excluirTarget) return
     setExcluindo(true)
@@ -405,6 +427,23 @@ export default function ConfigPage() {
           </p>
         </div>
       </div>
+
+      {/* Teste de e-mail (SMTP) — somente admin */}
+      {isAdmin && (
+        <div className="bg-white rounded-xl border border-gray-100 p-6 shadow-sm flex flex-col gap-3">
+          <div>
+            <h2 className="font-bold text-gray-800 text-sm">Notificações por E-mail</h2>
+            <p className="text-xs text-gray-400 mt-0.5">
+              Testa o envio via SMTP. O e-mail de teste vai apenas para a <strong>sua conta de login</strong>, sem notificar a equipe.
+            </p>
+          </div>
+          <div>
+            <Button variant="secondary" onClick={handleTesteEmail} disabled={testandoEmail}>
+              {testandoEmail ? 'Enviando…' : '✉ Enviar e-mail de teste'}
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Zona de perigo — somente admin */}
       {isAdmin && (

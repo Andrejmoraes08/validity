@@ -40,6 +40,36 @@ export async function POST(req: Request) {
 
   const body = await req.json().catch(() => null)
   const acaoKey = String(body?.acao ?? '')
+
+  // Ação especial de teste: envia só para o próprio solicitante (não notifica a equipe)
+  if (acaoKey === 'teste') {
+    if (!smtpHost || !smtpUser || !smtpPass) {
+      return NextResponse.json({ ok: true, enviados: 0, semProvedor: true })
+    }
+    const alvo = caller.user.email
+    if (!alvo) return NextResponse.json({ error: 'Sua conta não tem e-mail' }, { status: 400 })
+    try {
+      const transporter = nodemailer.createTransport({
+        host: smtpHost, port: smtpPort, secure: smtpPort === 465,
+        auth: { user: smtpUser, pass: smtpPass },
+      })
+      await transporter.sendMail({
+        from: smtpFrom,
+        to: alvo,
+        subject: '[VALIDITY] E-mail de teste',
+        html: `<div style="font-family:Arial,sans-serif">
+          <h2 style="color:#16a34a">✓ SMTP funcionando</h2>
+          <p>Este é um e-mail de teste do VALIDITY. Se você recebeu, o envio de notificações do Plano de Ação está ativo.</p>
+          <p style="font-size:12px;color:#aaa">Enviado por ${caller.user.email} em ${new Date().toLocaleString('pt-BR')}</p>
+        </div>`,
+      })
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'erro desconhecido'
+      return NextResponse.json({ error: `Falha no envio SMTP: ${msg}` }, { status: 502 })
+    }
+    return NextResponse.json({ ok: true, enviados: 1, teste: alvo })
+  }
+
   const acao = ACOES[acaoKey]
   if (!acao) return NextResponse.json({ error: 'Ação inválida' }, { status: 400 })
 
