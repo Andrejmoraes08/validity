@@ -52,6 +52,7 @@ export async function POST(req: Request) {
       const transporter = nodemailer.createTransport({
         host: smtpHost, port: smtpPort, secure: smtpPort === 465,
         auth: { user: smtpUser, pass: smtpPass },
+        connectionTimeout: 8000, greetingTimeout: 8000, socketTimeout: 8000,
       })
       await transporter.sendMail({
         from: smtpFrom,
@@ -135,6 +136,7 @@ export async function POST(req: Request) {
       port: smtpPort,
       secure: smtpPort === 465, // 465 = SSL; 587 = STARTTLS
       auth: { user: smtpUser, pass: smtpPass },
+      connectionTimeout: 8000, greetingTimeout: 8000, socketTimeout: 8000,
     })
 
     await transporter.sendMail({
