@@ -26,7 +26,7 @@ interface EnvioResult { ok: boolean; semProvedor?: boolean; erro?: string }
 
 // Envio unificado: relay KingHost (PHP) → Brevo (API) → SMTP → degrada.
 async function enviarEmail(opts: { to: string[]; subject: string; html: string }): Promise<EnvioResult> {
-  const brevoKey = process.env.BREVO_API_KEY
+  const brevoKey = process.env.BREVO_API_KEY?.trim()
   const fromRaw = process.env.EMAIL_FROM || process.env.BREVO_FROM || process.env.SMTP_FROM
     || (process.env.SMTP_USER ? `VALIDITY <${process.env.SMTP_USER}>` : '')
   const from = parseFrom(fromRaw)
