@@ -241,7 +241,7 @@ export default function PlanoAcaoPage() {
                 {onBloqueio && (
                   <td className="px-4 py-3">
                     {can('plano.bloquear')
-                      ? <Button size="sm" variant="danger" onClick={() => onBloqueio(item)}>Bloquear</Button>
+                      ? <Button size="sm" variant="danger" onClick={() => onBloqueio(item)}>Solicitar Bloqueio</Button>
                       : <span className="text-[11px] text-gray-300">—</span>}
                   </td>
                 )}
