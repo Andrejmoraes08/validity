@@ -305,7 +305,7 @@ export default function PlanoAcaoPage() {
       const diasLabel = dias < 0 ? `${Math.abs(dias)}d vencido` : `${dias}d`
       return [
         g.sku, g.descricao, fmtDate(g.validade), diasLabel,
-        String(g.enderecos), String(g.quantidade),
+        String(g.quantidade),
       ]
     })
 
@@ -317,17 +317,16 @@ export default function PlanoAcaoPage() {
 
     autoTable(doc, {
       startY: 22,
-      head: [['SKU', 'Descrição', 'Validade', 'Dias', 'End.', 'Qtde Total']],
+      head: [['SKU', 'Descrição', 'Validade', 'Dias', 'Qtde Total']],
       body: rows,
       styles: { fontSize: 8, cellPadding: 2.5, font: 'helvetica', overflow: 'linebreak' },
       headStyles: { fillColor: [26, 29, 36], textColor: 255, fontStyle: 'bold', fontSize: 8 },
       columnStyles: {
-        0: { cellWidth: 20, fontStyle: 'bold' },
-        1: { cellWidth: 82 },
-        2: { cellWidth: 26, halign: 'center' },
-        3: { cellWidth: 18, halign: 'center' },
-        4: { cellWidth: 14, halign: 'center' },
-        5: { cellWidth: 24, halign: 'center', fontStyle: 'bold' },
+        0: { cellWidth: 22, fontStyle: 'bold' },
+        1: { cellWidth: 92 },
+        2: { cellWidth: 28, halign: 'center' },
+        3: { cellWidth: 20, halign: 'center' },
+        4: { cellWidth: 28, halign: 'center', fontStyle: 'bold' },
       },
       alternateRowStyles: { fillColor: [248, 249, 251] },
       didParseCell: (data) => {
@@ -434,7 +433,7 @@ export default function PlanoAcaoPage() {
               <table className="w-full text-xs">
                 <thead className="bg-white border-b border-gray-100">
                   <tr>
-                    {['SKU', 'Descrição', 'Validade', 'Endereços', 'Qtde Total'].map(h => (
+                    {['SKU', 'Descrição', 'Validade', 'Qtde Total'].map(h => (
                       <th key={h} className="px-4 py-3 text-left text-gray-500 font-semibold text-[11px] uppercase tracking-wide">{h}</th>
                     ))}
                   </tr>
@@ -443,19 +442,15 @@ export default function PlanoAcaoPage() {
                   {consolidado.map((g, i) => (
                     <tr key={`${g.sku}-${g.validade}-${i}`} className="border-b border-gray-50 hover:bg-gray-50">
                       <td className="px-4 py-3 font-mono font-bold text-gray-800">{g.sku}</td>
-                      <td className="px-4 py-3 text-gray-700 max-w-[220px] truncate">{g.descricao}</td>
+                      <td className="px-4 py-3 text-gray-700 max-w-[260px] truncate">{g.descricao}</td>
                       <td className="px-4 py-3"><ZoneCell validade={g.validade} /></td>
-                      <td className="px-4 py-3 text-gray-500">
-                        {g.enderecos} {g.enderecos === 1 ? 'endereço' : 'endereços'}
-                        {g.segregados > 0 && <span className="ml-1 text-[10px] text-orange-600 font-bold">({g.segregados} seg.)</span>}
-                      </td>
                       <td className="px-4 py-3 font-mono font-extrabold text-gray-900">{g.quantidade}</td>
                     </tr>
                   ))}
                 </tbody>
                 <tfoot>
                   <tr className="bg-gray-50 border-t-2 border-gray-200">
-                    <td className="px-4 py-3 font-bold text-gray-700" colSpan={4}>Total geral</td>
+                    <td className="px-4 py-3 font-bold text-gray-700" colSpan={3}>Total geral</td>
                     <td className="px-4 py-3 font-mono font-extrabold text-gray-900">{totalConsolidado}</td>
                   </tr>
                 </tfoot>
