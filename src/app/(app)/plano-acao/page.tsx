@@ -21,6 +21,7 @@ export default function PlanoAcaoPage() {
   const [responsavel, setResponsavel] = useState('')
   const [obs, setObs] = useState('')
   const [enviando, setEnviando] = useState(false)
+  const [resumoAberto, setResumoAberto] = useState(true)
 
   // Dispara o e-mail de notificação para os usuários com acesso ao Plano de Ação
   const notificar = async (acao: string, item: Item, resp: string, observacao = '') => {
@@ -65,6 +66,27 @@ export default function PlanoAcaoPage() {
       .sort((a, b) => diasParaVencer(a.validade) - diasParaVencer(b.validade)),
     [ativos]
   )
+
+  // Resumo consolidado: agrupa por SKU + validade, soma quantidades de todos os endereços.
+  // Respeita as permissões (só inclui as fontes que o usuário pode ver). Somente consulta.
+  const consolidado = useMemo(() => {
+    const fonte: Item[] = []
+    if (can('plano.ver_segregados')) fonte.push(...segregados)
+    if (can('plano.ver_zonas')) fonte.push(...vermelhos, ...amarelos)
+
+    const mapa = new Map<string, { sku: string; descricao: string; validade: string; quantidade: number; enderecos: number; segregados: number }>()
+    for (const i of fonte) {
+      const key = `${i.sku}||${i.validade}`
+      const g = mapa.get(key) ?? { sku: i.sku, descricao: i.descricao, validade: i.validade, quantidade: 0, enderecos: 0, segregados: 0 }
+      g.quantidade += i.quantidade
+      g.enderecos += 1
+      if (i.status === 'segregado') g.segregados += 1
+      mapa.set(key, g)
+    }
+    return Array.from(mapa.values()).sort((a, b) => diasParaVencer(a.validade) - diasParaVencer(b.validade))
+  }, [segregados, vermelhos, amarelos, can])
+
+  const totalConsolidado = useMemo(() => consolidado.reduce((s, g) => s + g.quantidade, 0), [consolidado])
 
   // Solicitar bloqueio (Zona Crítica): NÃO muda o status, só notifica por e-mail
   const handleSolicitar = async () => {
@@ -260,6 +282,80 @@ export default function PlanoAcaoPage() {
     toast('PDF de segregados gerado')
   }
 
+  const exportarConsolidadoPDF = async () => {
+    if (consolidado.length === 0) { toast('Nada a consolidar', 'info'); return }
+    const { jsPDF } = await import('jspdf')
+    const autoTable = (await import('jspdf-autotable')).default
+
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+    const hoje = new Date().toLocaleDateString('pt-BR')
+
+    doc.setFillColor(26, 29, 36)
+    doc.rect(0, 0, 210, 18, 'F')
+    doc.setTextColor(255, 255, 255)
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(13)
+    doc.text('VALIDITY — Resumo Consolidado', 10, 12)
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(9)
+    doc.text(`Por SKU e validade   |   Gerado em: ${hoje}   |   Total: ${totalConsolidado} un`, 10, 17.5)
+
+    const rows = consolidado.map(g => {
+      const dias = diasParaVencer(g.validade)
+      const diasLabel = dias < 0 ? `${Math.abs(dias)}d vencido` : `${dias}d`
+      return [
+        g.sku, g.descricao, fmtDate(g.validade), diasLabel,
+        String(g.enderecos), String(g.quantidade),
+      ]
+    })
+
+    const hexToRgb = (hex: string) => ({
+      r: parseInt(hex.slice(1, 3), 16),
+      g: parseInt(hex.slice(3, 5), 16),
+      b: parseInt(hex.slice(5, 7), 16),
+    })
+
+    autoTable(doc, {
+      startY: 22,
+      head: [['SKU', 'Descrição', 'Validade', 'Dias', 'End.', 'Qtde Total']],
+      body: rows,
+      styles: { fontSize: 8, cellPadding: 2.5, font: 'helvetica', overflow: 'linebreak' },
+      headStyles: { fillColor: [26, 29, 36], textColor: 255, fontStyle: 'bold', fontSize: 8 },
+      columnStyles: {
+        0: { cellWidth: 20, fontStyle: 'bold' },
+        1: { cellWidth: 82 },
+        2: { cellWidth: 26, halign: 'center' },
+        3: { cellWidth: 18, halign: 'center' },
+        4: { cellWidth: 14, halign: 'center' },
+        5: { cellWidth: 24, halign: 'center', fontStyle: 'bold' },
+      },
+      alternateRowStyles: { fillColor: [248, 249, 251] },
+      didParseCell: (data) => {
+        if (data.section === 'body' && data.column.index === 2) {
+          const g = consolidado[data.row.index]
+          if (!g) return
+          const z = getZone(g.validade)
+          const rgb = hexToRgb(z.color)
+          data.cell.styles.fillColor = [rgb.r, rgb.g, rgb.b]
+          data.cell.styles.textColor = z.textColor === '#ffffff' ? [255, 255, 255] : [26, 29, 36]
+          data.cell.styles.fontStyle = 'bold'
+        }
+      },
+    })
+
+    const pageCount = (doc as InstanceType<typeof jsPDF> & { internal: { getNumberOfPages: () => number } }).internal.getNumberOfPages()
+    for (let i = 1; i <= pageCount; i++) {
+      doc.setPage(i)
+      doc.setFontSize(7)
+      doc.setTextColor(150)
+      doc.text(`Página ${i} de ${pageCount}`, 200, 290, { align: 'right' })
+      doc.text('VALIDITY · Gestão de Validade de Estoque · GRF Distribuição', 10, 290)
+    }
+
+    doc.save(`resumo-consolidado-${new Date().toISOString().split('T')[0]}.pdf`)
+    toast('PDF do resumo gerado')
+  }
+
   const ItemTable = ({ items, onBloqueio }: { items: Item[]; onBloqueio?: (i: Item) => void }) => (
     <div className="overflow-x-auto">
       {items.length === 0 ? (
@@ -310,6 +406,64 @@ export default function PlanoAcaoPage() {
         <h1 className="text-xl font-extrabold text-gray-900">Plano de Ação</h1>
         <p className="text-sm text-gray-400">Itens que requerem atenção imediata ou monitoramento</p>
       </div>
+
+      {/* Resumo Consolidado — por SKU + validade (somente consulta) */}
+      {consolidado.length > 0 && (
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+          <button
+            onClick={() => setResumoAberto(v => !v)}
+            className="w-full flex items-center justify-between px-5 py-4 bg-gray-50 border-b border-gray-100 hover:bg-gray-100 transition-colors"
+          >
+            <div className="flex items-center gap-3">
+              <span className="text-gray-400">{resumoAberto ? '▾' : '▸'}</span>
+              <h2 className="font-bold text-gray-700">Resumo Consolidado</h2>
+              <span className="bg-gray-700 text-white text-[11px] font-bold px-2 py-0.5 rounded-full">{consolidado.length} SKU/validade</span>
+              <span className="text-xs text-gray-400 font-mono">{totalConsolidado} un no total</span>
+            </div>
+            {can('plano.exportar') && (
+              <span
+                onClick={(e) => { e.stopPropagation(); exportarConsolidadoPDF() }}
+                className="text-xs font-semibold text-blue-600 border border-blue-200 bg-white hover:bg-blue-50 px-3 py-1.5 rounded-lg transition-colors"
+              >
+                Exportar PDF
+              </span>
+            )}
+          </button>
+          {resumoAberto && (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead className="bg-white border-b border-gray-100">
+                  <tr>
+                    {['SKU', 'Descrição', 'Validade', 'Endereços', 'Qtde Total'].map(h => (
+                      <th key={h} className="px-4 py-3 text-left text-gray-500 font-semibold text-[11px] uppercase tracking-wide">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {consolidado.map((g, i) => (
+                    <tr key={`${g.sku}-${g.validade}-${i}`} className="border-b border-gray-50 hover:bg-gray-50">
+                      <td className="px-4 py-3 font-mono font-bold text-gray-800">{g.sku}</td>
+                      <td className="px-4 py-3 text-gray-700 max-w-[220px] truncate">{g.descricao}</td>
+                      <td className="px-4 py-3"><ZoneCell validade={g.validade} /></td>
+                      <td className="px-4 py-3 text-gray-500">
+                        {g.enderecos} {g.enderecos === 1 ? 'endereço' : 'endereços'}
+                        {g.segregados > 0 && <span className="ml-1 text-[10px] text-orange-600 font-bold">({g.segregados} seg.)</span>}
+                      </td>
+                      <td className="px-4 py-3 font-mono font-extrabold text-gray-900">{g.quantidade}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="bg-gray-50 border-t-2 border-gray-200">
+                    <td className="px-4 py-3 font-bold text-gray-700" colSpan={4}>Total geral</td>
+                    <td className="px-4 py-3 font-mono font-extrabold text-gray-900">{totalConsolidado}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Segregados — aguardando confirmação de bloqueio */}
       {can('plano.ver_segregados') && (
