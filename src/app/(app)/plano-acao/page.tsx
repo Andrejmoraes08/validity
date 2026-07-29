@@ -68,11 +68,12 @@ export default function PlanoAcaoPage() {
   )
 
   // Resumo consolidado: agrupa por SKU + validade, soma quantidades de todos os endereços.
-  // Respeita as permissões (só inclui as fontes que o usuário pode ver). Somente consulta.
+  // Apenas o que precisa ser definido no plano de ação: segregados + vencido/crítico (<30d).
+  // A zona de atenção (30-90d) é só monitoramento e fica de fora. Respeita as permissões.
   const consolidado = useMemo(() => {
     const fonte: Item[] = []
     if (can('plano.ver_segregados')) fonte.push(...segregados)
-    if (can('plano.ver_zonas')) fonte.push(...vermelhos, ...amarelos)
+    if (can('plano.ver_zonas')) fonte.push(...vermelhos)
 
     const mapa = new Map<string, { sku: string; descricao: string; validade: string; quantidade: number; enderecos: number; segregados: number }>()
     for (const i of fonte) {
@@ -84,7 +85,7 @@ export default function PlanoAcaoPage() {
       mapa.set(key, g)
     }
     return Array.from(mapa.values()).sort((a, b) => diasParaVencer(a.validade) - diasParaVencer(b.validade))
-  }, [segregados, vermelhos, amarelos, can])
+  }, [segregados, vermelhos, can])
 
   const totalConsolidado = useMemo(() => consolidado.reduce((s, g) => s + g.quantidade, 0), [consolidado])
 
@@ -355,7 +356,7 @@ export default function PlanoAcaoPage() {
     toast('PDF do resumo gerado')
   }
 
-  const ItemTable = ({ items, onBloqueio }: { items: Item[]; onBloqueio?: (i: Item) => void }) => (
+  const ItemTable = ({ items, onBloqueio, mostrarInspecao }: { items: Item[]; onBloqueio?: (i: Item) => void; mostrarInspecao?: boolean }) => (
     <div className="overflow-x-auto">
       {items.length === 0 ? (
         <p className="text-center py-8 text-sm text-gray-400">Nenhum item nesta zona</p>
@@ -363,8 +364,10 @@ export default function PlanoAcaoPage() {
         <table className="w-full text-xs">
           <thead className="bg-gray-50 border-b border-gray-100">
             <tr>
-              {['SKU', 'Descrição', 'Lote', 'Endereço', 'Qtd', 'Validade', ...(onBloqueio ? ['Ação'] : [])].map(h => (
-                <th key={h} className="px-4 py-3 text-left text-gray-500 font-semibold text-[11px] uppercase tracking-wide">{h}</th>
+              {['SKU', 'Descrição', 'Lote', 'Endereço', 'Qtd', 'Validade',
+                ...(mostrarInspecao ? ['Últ. Inspeção'] : []),
+                ...(onBloqueio ? ['Ação'] : [])].map(h => (
+                <th key={h} className="px-4 py-3 text-left text-gray-500 font-semibold text-[11px] uppercase tracking-wide whitespace-nowrap">{h}</th>
               ))}
             </tr>
           </thead>
@@ -382,6 +385,18 @@ export default function PlanoAcaoPage() {
                   }
                 </td>
                 <td className="px-4 py-3"><ZoneCell validade={item.validade} /></td>
+                {mostrarInspecao && (
+                  <td className="px-4 py-3 whitespace-nowrap">
+                    {item.ultima_inspecao ? (
+                      <div className="flex flex-col">
+                        <span className="text-gray-600 font-mono text-[11px]">{fmtDateTime(item.ultima_inspecao)}</span>
+                        {item.inspecionado_por && <span className="text-gray-400 text-[10px] truncate max-w-[110px]">{item.inspecionado_por}</span>}
+                      </div>
+                    ) : (
+                      <span className="text-gray-300 text-[11px]">— nunca</span>
+                    )}
+                  </td>
+                )}
                 {onBloqueio && (
                   <td className="px-4 py-3">
                     {can('plano.bloquear')
@@ -550,7 +565,7 @@ export default function PlanoAcaoPage() {
             </Button>
           )}
         </div>
-        <ItemTable items={amarelos} />
+        <ItemTable items={amarelos} mostrarInspecao />
       </div>
       )}
 
