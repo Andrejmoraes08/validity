@@ -66,6 +66,66 @@ export function useItens() {
     return { error }
   }
 
+  // Envia item segregado para a Quarentena (aguarda devolução ou descarte)
+  const enviarQuarentena = async (id: string, responsavel: string) => {
+    const item = itens.find(i => i.id === id)
+    if (!item) return { error: new Error('Item não encontrado') }
+    const { data: { user } } = await supabase.auth.getUser()
+    const now = new Date().toISOString()
+    const { error } = await supabase.from('itens').update({
+      status: 'quarentena',
+      quarentena_em: now,
+      quarentena_por: responsavel,
+    }).eq('id', id)
+    if (!error) {
+      await supabase.from('historico').insert({
+        descricao: `Enviado para quarentena: ${item.sku} — ${item.endereco_frac || item.endereco_gran} (qtd ${item.quantidade})`,
+        responsavel,
+        user_id: user!.id,
+      })
+      await fetchItens()
+    }
+    return { error }
+  }
+
+  // Baixa de item em quarentena com motivo (Devolução ao fornecedor / Descarte)
+  const baixarQuarentena = async (id: string, motivo: string, responsavel: string) => {
+    const item = itens.find(i => i.id === id)
+    if (!item) return { error: new Error('Item não encontrado') }
+    const { data: { user } } = await supabase.auth.getUser()
+    const now = new Date().toISOString()
+
+    const { error: errUpdate } = await supabase.from('itens').update({
+      status: 'baixado',
+      baixado_em: now,
+      quantidade: 0,
+    }).eq('id', id)
+
+    if (!errUpdate) {
+      await supabase.from('baixas').insert({
+        item_id: id,
+        sku: item.sku,
+        descricao: item.descricao,
+        lote: item.lote,
+        endereco_frac: item.endereco_frac,
+        endereco_gran: item.endereco_gran,
+        quantidade: item.quantidade,
+        validade: item.validade,
+        nf: '—',
+        motivo,
+        responsavel,
+        user_id: user!.id,
+      })
+      await supabase.from('historico').insert({
+        descricao: `Baixa por ${motivo}: ${item.sku} — ${item.endereco_frac || item.endereco_gran} (qtd ${item.quantidade})`,
+        responsavel,
+        user_id: user!.id,
+      })
+      await fetchItens()
+    }
+    return { error: errUpdate }
+  }
+
   // Estorno de segregação: item volta ao estoque ativo
   const estornarItem = async (id: string, responsavel: string) => {
     const item = itens.find(i => i.id === id)
@@ -124,5 +184,5 @@ export function useItens() {
     return { error: errUpdate }
   }
 
-  return { itens, loading, fetchItens, addItem, updateItem, deleteItem, bloquearItem, estornarItem, baixarItem }
+  return { itens, loading, fetchItens, addItem, updateItem, deleteItem, bloquearItem, enviarQuarentena, baixarQuarentena, estornarItem, baixarItem }
 }

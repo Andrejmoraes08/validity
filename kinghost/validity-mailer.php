@@ -17,8 +17,8 @@
  */
 
 // ==== CONFIGURAÇÃO — AJUSTE AQUI ==============================================
-const SEGREDO    = 'COLE_UM_SEGREDO_LONGO_E_ALEATORIO_AQUI'; // igual ao da Vercel
-const FROM_EMAIL = 'validade@seudominio.com.br';             // e-mail hospedado no KingHost
+const SEGREDO    = 'd43a1058ed04f3320e6cb22484dd955d31e7acdd82bb6153'; // igual ao da Vercel
+const FROM_EMAIL = 'validades@ajmconsultoria.com.br';             // e-mail hospedado no KingHost
 const FROM_NOME  = 'VALIDITY';
 // ============================================================================
 

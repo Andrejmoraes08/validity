@@ -119,6 +119,7 @@ export function ItemForm({ open, onClose, onSave, initial, title }: ItemFormProp
             className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500">
             <option value="ativo">Ativo</option>
             <option value="segregado">Segregado</option>
+            <option value="quarentena">Quarentena</option>
             <option value="bloqueado">Bloqueado</option>
             <option value="baixado">Baixado</option>
           </select>

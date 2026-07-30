@@ -107,7 +107,7 @@ export default function BloqueiosPage() {
             <table className="w-full text-xs">
               <thead className="bg-gray-50 border-b border-gray-100">
                 <tr>
-                  {['Data', 'SKU', 'Descrição', 'Lote', 'Qtd', 'Validade', 'NF', 'Responsável'].map(h => (
+                  {['Data', 'SKU', 'Descrição', 'Lote', 'Qtd', 'Validade', 'NF', 'Motivo', 'Responsável'].map(h => (
                     <th key={h} className="px-4 py-3 text-left text-gray-400 font-semibold text-[11px] uppercase">{h}</th>
                   ))}
                 </tr>
@@ -122,6 +122,7 @@ export default function BloqueiosPage() {
                     <td className="px-4 py-3 font-mono font-bold">{b.quantidade}</td>
                     <td className="px-4 py-3">{fmtDate(b.validade)}</td>
                     <td className="px-4 py-3 font-mono font-bold text-blue-600">{b.nf}</td>
+                    <td className="px-4 py-3 text-gray-500">{b.motivo || '—'}</td>
                     <td className="px-4 py-3 text-gray-500">{b.responsavel}</td>
                   </tr>
                 ))}

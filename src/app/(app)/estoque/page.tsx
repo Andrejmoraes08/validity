@@ -12,7 +12,7 @@ import { fmtDateTime } from '@/lib/utils'
 import { usePerfílContext } from '@/lib/perfil-context'
 import type { Item } from '@/lib/types'
 
-type StatusFilter = 'todos' | 'ativo' | 'segregado' | 'bloqueado' | 'baixado'
+type StatusFilter = 'todos' | 'ativo' | 'segregado' | 'quarentena' | 'bloqueado' | 'baixado'
 type EnderecoFilter = '' | 'frac' | 'gran'
 type InspecaoFilter = '' | 'nunca' | '30' | '60' | '90'
 type Ordenacao = 'validade' | 'inspecao_antiga' | 'inspecao_recente'
@@ -119,6 +119,7 @@ export default function EstoquePage() {
   const statusColors: Record<string, string> = {
     ativo: 'bg-green-100 text-green-700',
     segregado: 'bg-orange-100 text-orange-700',
+    quarentena: 'bg-purple-100 text-purple-700',
     bloqueado: 'bg-red-100 text-red-700',
     baixado: 'bg-gray-100 text-gray-500',
   }
@@ -154,6 +155,7 @@ export default function EstoquePage() {
           <option value="todos">Todos os status</option>
           <option value="ativo">Ativo</option>
           <option value="segregado">Segregado</option>
+          <option value="quarentena">Quarentena</option>
           <option value="bloqueado">Bloqueado</option>
           <option value="baixado">Baixado</option>
         </select>

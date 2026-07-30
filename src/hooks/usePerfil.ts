@@ -32,8 +32,11 @@ export const TODAS_TABS = [
 export const TODAS_PERMISSOES: { key: string; label: string; tab: string; descricao?: string }[] = [
   { key: 'plano.ver_zonas',      tab: 'plano-acao', label: 'Ver zonas crítica/atenção' },
   { key: 'plano.ver_segregados', tab: 'plano-acao', label: 'Ver segregados' },
+  { key: 'plano.ver_quarentena', tab: 'plano-acao', label: 'Ver quarentena' },
   { key: 'plano.bloquear',       tab: 'plano-acao', label: 'Confirmar bloqueio' },
-  { key: 'plano.estornar',       tab: 'plano-acao', label: 'Estornar segregação' },
+  { key: 'plano.quarentena',     tab: 'plano-acao', label: 'Enviar para quarentena' },
+  { key: 'plano.quarentena_resolver', tab: 'plano-acao', label: 'Resolver quarentena (devolução/descarte)' },
+  { key: 'plano.estornar',       tab: 'plano-acao', label: 'Estornar para venda' },
   { key: 'plano.exportar',       tab: 'plano-acao', label: 'Exportar PDF' },
   { key: 'inspecao.segregar',    tab: 'inspecao',   label: 'Segregar item' },
   { key: 'inspecao.baixar',      tab: 'inspecao',   label: 'Baixar endereço' },
@@ -49,7 +52,7 @@ export const TODAS_PERMISSOES_KEYS = TODAS_PERMISSOES.map(p => p.key)
 const TABS_PADRAO_OPERADOR = ['dashboard', 'estoque', 'inspecao', 'wms']
 // Novo operador começa com permissões amplas; o admin restringe depois.
 const PERMISSOES_PADRAO_OPERADOR = [
-  'plano.ver_zonas', 'plano.ver_segregados', 'plano.exportar',
+  'plano.ver_zonas', 'plano.ver_segregados', 'plano.ver_quarentena', 'plano.exportar',
   'inspecao.segregar', 'inspecao.baixar', 'wms.importar',
 ]
 

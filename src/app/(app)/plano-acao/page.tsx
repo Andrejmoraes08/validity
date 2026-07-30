@@ -12,11 +12,13 @@ import { supabase } from '@/lib/supabase'
 import type { Item } from '@/lib/types'
 
 export default function PlanoAcaoPage() {
-  const { itens, loading, bloquearItem, estornarItem } = useItens()
+  const { itens, loading, bloquearItem, enviarQuarentena, baixarQuarentena, estornarItem } = useItens()
   const { toast } = useToast()
   const { can } = usePerfílContext()
   const [bloqueioTarget, setBloqueioTarget] = useState<Item | null>(null)
   const [estornoTarget, setEstornoTarget] = useState<Item | null>(null)
+  const [quarentenaTarget, setQuarentenaTarget] = useState<Item | null>(null)
+  const [resolverQuar, setResolverQuar] = useState<{ sku: string; descricao: string; motivo: string } | null>(null)
   const [solicitarTarget, setSolicitarTarget] = useState<Item | null>(null)
   const [responsavel, setResponsavel] = useState('')
   const [obs, setObs] = useState('')
@@ -66,6 +68,19 @@ export default function PlanoAcaoPage() {
       .sort((a, b) => diasParaVencer(a.validade) - diasParaVencer(b.validade)),
     [ativos]
   )
+
+  // Produtos em quarentena — consolidados por produto (SKU), somando a quantidade
+  const quarentenaItens = useMemo(() => itens.filter(i => i.status === 'quarentena'), [itens])
+  const quarentenaConsolidada = useMemo(() => {
+    const mapa = new Map<string, { sku: string; descricao: string; quantidade: number; ids: string[] }>()
+    for (const i of quarentenaItens) {
+      const g = mapa.get(i.sku) ?? { sku: i.sku, descricao: i.descricao, quantidade: 0, ids: [] }
+      g.quantidade += i.quantidade
+      g.ids.push(i.id)
+      mapa.set(i.sku, g)
+    }
+    return Array.from(mapa.values()).sort((a, b) => a.descricao.localeCompare(b.descricao))
+  }, [quarentenaItens])
 
   // Resumo consolidado: agrupa por SKU + validade, soma quantidades de todos os endereços.
   // Apenas o que precisa ser definido no plano de ação: segregados + vencido/crítico (<30d).
@@ -119,13 +134,42 @@ export default function PlanoAcaoPage() {
     setEnviando(true)
     const alvo = estornoTarget
     const { error } = await estornarItem(alvo.id, responsavel)
-    if (error) { toast('Erro ao estornar segregação', 'error'); setEnviando(false); return }
+    if (error) { toast('Erro ao estornar', 'error'); setEnviando(false); return }
     toast(`${alvo.sku} retornou ao estoque ativo`)
     await notificar('estorno', alvo, responsavel, obs)
     setEnviando(false)
     setEstornoTarget(null)
     setResponsavel('')
     setObs('')
+  }
+
+  // Enviar segregado para quarentena (não muda saldo; só move de fila)
+  const handleQuarentena = async () => {
+    if (!quarentenaTarget || !responsavel) return
+    setEnviando(true)
+    const { error } = await enviarQuarentena(quarentenaTarget.id, responsavel)
+    if (error) toast('Erro ao enviar para quarentena', 'error')
+    else toast(`${quarentenaTarget.sku} enviado para quarentena`)
+    setEnviando(false)
+    setQuarentenaTarget(null)
+    setResponsavel('')
+  }
+
+  // Resolver quarentena por SKU: baixa TODOS os itens daquele produto (devolução/descarte)
+  const handleResolverQuar = async () => {
+    if (!resolverQuar || !responsavel) return
+    setEnviando(true)
+    const ids = quarentenaItens.filter(i => i.sku === resolverQuar.sku).map(i => i.id)
+    let erros = 0
+    for (const id of ids) {
+      const { error } = await baixarQuarentena(id, resolverQuar.motivo, responsavel)
+      if (error) erros++
+    }
+    setEnviando(false)
+    if (erros > 0) toast(`Concluído com ${erros} erro(s)`, 'error')
+    else toast(`${resolverQuar.sku}: baixa por ${resolverQuar.motivo} registrada`)
+    setResolverQuar(null)
+    setResponsavel('')
   }
 
   const exportarPDF = async (items: Item[], zonaLabel: string) => {
@@ -498,7 +542,7 @@ export default function PlanoAcaoPage() {
               <thead className="bg-gray-50 border-b border-gray-100">
                 <tr>
                   {['SKU', 'Descrição', 'Lote', 'Endereço', 'Qtd', 'Validade', 'Segregado por', 'Em',
-                    ...((can('plano.bloquear') || can('plano.estornar')) ? ['Ação'] : [])].map(h => (
+                    ...((can('plano.bloquear') || can('plano.quarentena') || can('plano.estornar')) ? ['Ação'] : [])].map(h => (
                     <th key={h} className="px-4 py-3 text-left text-gray-500 font-semibold text-[11px] uppercase tracking-wide">{h}</th>
                   ))}
                 </tr>
@@ -514,11 +558,55 @@ export default function PlanoAcaoPage() {
                     <td className="px-4 py-3"><ZoneCell validade={item.validade} /></td>
                     <td className="px-4 py-3 text-gray-500">{item.segregado_por || '—'}</td>
                     <td className="px-4 py-3 text-gray-500">{item.segregado_em ? fmtDateTime(item.segregado_em) : '—'}</td>
-                    {(can('plano.bloquear') || can('plano.estornar')) && (
+                    {(can('plano.bloquear') || can('plano.quarentena') || can('plano.estornar')) && (
                       <td className="px-4 py-3">
-                        <div className="flex gap-2">
+                        <div className="flex gap-2 flex-wrap">
                           {can('plano.bloquear') && <Button size="sm" variant="danger" onClick={() => { setBloqueioTarget(item); setResponsavel(''); setObs('') }}>Confirmar Bloqueio</Button>}
-                          {can('plano.estornar') && <Button size="sm" variant="ghost" onClick={() => { setEstornoTarget(item); setResponsavel(''); setObs('') }}>Estornar</Button>}
+                          {can('plano.quarentena') && <Button size="sm" variant="secondary" onClick={() => { setQuarentenaTarget(item); setResponsavel('') }}>Enviar p/ Quarentena</Button>}
+                          {can('plano.estornar') && <Button size="sm" variant="ghost" onClick={() => { setEstornoTarget(item); setResponsavel(''); setObs('') }}>Estornar p/ Venda</Button>}
+                        </div>
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+      )}
+
+      {/* Produtos em Quarentena — consolidado por produto */}
+      {can('plano.ver_quarentena') && (
+      <div className="bg-white rounded-xl border border-purple-100 shadow-sm overflow-hidden">
+        <div className="flex items-center gap-3 px-5 py-4 bg-purple-50 border-b border-purple-100">
+          <div className="w-3 h-3 rounded-full bg-purple-500" />
+          <h2 className="font-bold text-purple-700">Produtos em Quarentena — aguardando devolução ou descarte</h2>
+          <span className="bg-purple-500 text-white text-[11px] font-bold px-2 py-0.5 rounded-full">{quarentenaConsolidada.length}</span>
+        </div>
+        <div className="overflow-x-auto">
+          {quarentenaConsolidada.length === 0 ? (
+            <p className="text-center py-8 text-sm text-gray-400">Nenhum produto em quarentena</p>
+          ) : (
+            <table className="w-full text-xs">
+              <thead className="bg-gray-50 border-b border-gray-100">
+                <tr>
+                  {['SKU', 'Descrição', 'Qtde Total', ...(can('plano.quarentena_resolver') ? ['Ação'] : [])].map(h => (
+                    <th key={h} className="px-4 py-3 text-left text-gray-500 font-semibold text-[11px] uppercase tracking-wide">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {quarentenaConsolidada.map(g => (
+                  <tr key={g.sku} className="border-b border-gray-50 hover:bg-gray-50">
+                    <td className="px-4 py-3 font-mono font-bold text-gray-800">{g.sku}</td>
+                    <td className="px-4 py-3 text-gray-700 max-w-[260px] truncate">{g.descricao}</td>
+                    <td className="px-4 py-3 font-mono font-extrabold text-gray-900">{g.quantidade}</td>
+                    {can('plano.quarentena_resolver') && (
+                      <td className="px-4 py-3">
+                        <div className="flex gap-2 flex-wrap">
+                          <Button size="sm" variant="secondary" onClick={() => { setResolverQuar({ sku: g.sku, descricao: g.descricao, motivo: 'Devolução ao fornecedor' }); setResponsavel('') }}>Devolução p/ fornecedor</Button>
+                          <Button size="sm" variant="danger" onClick={() => { setResolverQuar({ sku: g.sku, descricao: g.descricao, motivo: 'Descarte' }); setResponsavel('') }}>Descartar</Button>
                         </div>
                       </td>
                     )}
@@ -651,6 +739,57 @@ export default function PlanoAcaoPage() {
           <Button variant="ghost" onClick={() => { setEstornoTarget(null); setResponsavel('') }}>Cancelar</Button>
           <Button variant="primary" onClick={handleEstorno} disabled={!responsavel || enviando}>
             {enviando ? 'Processando…' : 'Confirmar Estorno'}
+          </Button>
+        </div>
+      </Modal>
+
+      {/* Modal enviar para quarentena */}
+      <Modal open={!!quarentenaTarget} onClose={() => { setQuarentenaTarget(null); setResponsavel('') }} title="Enviar para Quarentena">
+        <p className="text-sm text-gray-600 mb-3">
+          Enviando <strong>{quarentenaTarget?.sku}</strong> — {quarentenaTarget?.descricao}
+        </p>
+        <div className="rounded-lg border border-purple-100 bg-purple-50 p-3 mb-4">
+          <p className="text-xs text-purple-700">
+            O item sai dos segregados e vai para <strong>Produtos em Quarentena</strong>, onde aguardará
+            devolução ao fornecedor ou descarte. O saldo é mantido até a resolução.
+          </p>
+        </div>
+        <div className="flex flex-col gap-1 mb-6">
+          <label className="text-xs font-semibold text-gray-600">Responsável *</label>
+          <input type="text" value={responsavel} onChange={e => setResponsavel(e.target.value)}
+            placeholder="Nome do responsável"
+            className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
+        </div>
+        <div className="flex justify-end gap-3">
+          <Button variant="ghost" onClick={() => { setQuarentenaTarget(null); setResponsavel('') }}>Cancelar</Button>
+          <Button variant="primary" onClick={handleQuarentena} disabled={!responsavel || enviando}>
+            {enviando ? 'Enviando…' : 'Enviar para Quarentena'}
+          </Button>
+        </div>
+      </Modal>
+
+      {/* Modal resolver quarentena (devolução/descarte) */}
+      <Modal open={!!resolverQuar} onClose={() => { setResolverQuar(null); setResponsavel('') }} title={resolverQuar?.motivo ?? 'Resolver Quarentena'}>
+        <p className="text-sm text-gray-600 mb-3">
+          <strong>{resolverQuar?.motivo}</strong> de <strong>{resolverQuar?.sku}</strong> — {resolverQuar?.descricao}
+        </p>
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 mb-4">
+          <p className="text-xs text-amber-700">
+            Todos os itens deste produto em quarentena terão o <strong>saldo baixado do sistema</strong>
+            {' '}({quarentenaItens.filter(i => i.sku === resolverQuar?.sku).reduce((s, i) => s + i.quantidade, 0)} un
+            em {quarentenaItens.filter(i => i.sku === resolverQuar?.sku).length} posição(ões)). Não há como desfazer.
+          </p>
+        </div>
+        <div className="flex flex-col gap-1 mb-6">
+          <label className="text-xs font-semibold text-gray-600">Responsável *</label>
+          <input type="text" value={responsavel} onChange={e => setResponsavel(e.target.value)}
+            placeholder="Nome do responsável"
+            className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
+        </div>
+        <div className="flex justify-end gap-3">
+          <Button variant="ghost" onClick={() => { setResolverQuar(null); setResponsavel('') }}>Cancelar</Button>
+          <Button variant="danger" onClick={handleResolverQuar} disabled={!responsavel || enviando}>
+            {enviando ? 'Processando…' : `Confirmar ${resolverQuar?.motivo === 'Descarte' ? 'Descarte' : 'Devolução'}`}
           </Button>
         </div>
       </Modal>

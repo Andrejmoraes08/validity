@@ -1,4 +1,4 @@
-export type ItemStatus = 'ativo' | 'segregado' | 'bloqueado' | 'baixado'
+export type ItemStatus = 'ativo' | 'segregado' | 'bloqueado' | 'quarentena' | 'baixado'
 
 export interface Item {
   id: string
@@ -15,6 +15,8 @@ export interface Item {
   segregado_por?: string
   bloqueado_em?: string
   bloqueado_por?: string
+  quarentena_em?: string
+  quarentena_por?: string
   baixado_em?: string
   ultima_inspecao?: string
   inspecionado_por?: string
@@ -36,6 +38,7 @@ export interface Baixa {
   quantidade: number
   validade: string
   nf: string
+  motivo?: string
   responsavel: string
   created_at: string
   user_id: string

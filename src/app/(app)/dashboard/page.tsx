@@ -18,7 +18,7 @@ export default function DashboardPage() {
     [ativos]
   )
   const porStatus = useMemo(() => {
-    const c: Record<string, number> = { ativo: 0, segregado: 0, bloqueado: 0, baixado: 0 }
+    const c: Record<string, number> = { ativo: 0, segregado: 0, quarentena: 0, bloqueado: 0, baixado: 0 }
     for (const i of itens) c[i.status] = (c[i.status] ?? 0) + 1
     return c
   }, [itens])
@@ -60,6 +60,7 @@ export default function DashboardPage() {
         Registros no sistema: <strong className="text-gray-600 font-mono">{itens.length}</strong> —{' '}
         <span className="font-mono">{porStatus.ativo}</span> ativos ·{' '}
         <span className="font-mono">{porStatus.segregado}</span> segregados ·{' '}
+        <span className="font-mono">{porStatus.quarentena}</span> quarentena ·{' '}
         <span className="font-mono">{porStatus.bloqueado}</span> bloqueados ·{' '}
         <span className="font-mono">{porStatus.baixado}</span> baixados
       </p>
