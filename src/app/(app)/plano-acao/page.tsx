@@ -570,8 +570,8 @@ export default function PlanoAcaoPage() {
                       <td className="px-4 py-3">
                         <div className="flex gap-2 flex-wrap">
                           {can('plano.bloquear') && <Button size="sm" variant="danger" onClick={() => { setBloqueioTarget(item); setResponsavel(''); setObs('') }}>Confirmar Bloqueio</Button>}
-                          {can('plano.quarentena') && <Button size="sm" variant="secondary" onClick={() => { setQuarentenaTarget(item); setResponsavel('') }}>Enviar p/ Quarentena</Button>}
-                          {can('plano.estornar') && <Button size="sm" variant="ghost" onClick={() => { setEstornoTarget(item); setResponsavel(''); setObs('') }}>Estornar p/ Venda</Button>}
+                          {can('plano.quarentena') && <Button size="sm" variant="ghost" className="!bg-amber-500 hover:!bg-amber-600 !text-white !border-transparent" onClick={() => { setQuarentenaTarget(item); setResponsavel('') }}>Enviar p/ Quarentena</Button>}
+                          {can('plano.estornar') && <Button size="sm" variant="ghost" className="!bg-green-600 hover:!bg-green-700 !text-white !border-transparent" onClick={() => { setEstornoTarget(item); setResponsavel(''); setObs('') }}>Estornar p/ Venda</Button>}
                         </div>
                       </td>
                     )}
