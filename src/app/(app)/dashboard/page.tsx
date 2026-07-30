@@ -38,6 +38,46 @@ export default function DashboardPage() {
     return counts
   }, [ativos])
 
+  const DIA = 86400000
+
+  // Projeção de vencimentos — unidades e itens que vencem em até 30/60/90 dias (cumulativo)
+  const projecao = useMemo(() => {
+    const w = [30, 60, 90].map(dias => {
+      const grupo = ativos.filter(i => { const d = diasParaVencer(i.validade); return d >= 0 && d < dias })
+      return { dias, itens: grupo.length, un: grupo.reduce((s, i) => s + i.quantidade, 0) }
+    })
+    return w
+  }, [ativos])
+  const projMax = useMemo(() => Math.max(1, ...projecao.map(p => p.un)), [projecao])
+
+  // Cobertura de inspeção — % dos endereços ativos já inspecionados
+  const cobertura = useMemo(() => {
+    const agora = Date.now()
+    const total = ativos.length
+    const inspecionados = ativos.filter(i => i.ultima_inspecao).length
+    const ultimos30 = ativos.filter(i => i.ultima_inspecao && (agora - new Date(i.ultima_inspecao).getTime()) / DIA <= 30).length
+    return {
+      total, inspecionados, nunca: total - inspecionados, ultimos30,
+      pct: total ? Math.round(inspecionados / total * 100) : 0,
+      pct30: total ? Math.round(ultimos30 / total * 100) : 0,
+    }
+  }, [ativos])
+
+  // Envelhecimento da quarentena — há quanto tempo cada produto aguarda
+  const quarentenaAging = useMemo(() => {
+    const agora = Date.now()
+    const q = itens.filter(i => i.status === 'quarentena')
+    const b = { recente: 0, medio: 0, antigo: 0, total: q.length, un: 0 }
+    for (const i of q) {
+      b.un += i.quantidade
+      const dias = i.quarentena_em ? (agora - new Date(i.quarentena_em).getTime()) / DIA : 0
+      if (dias < 7) b.recente++
+      else if (dias <= 30) b.medio++
+      else b.antigo++
+    }
+    return b
+  }, [itens])
+
   if (loading) return <div className="flex items-center justify-center h-64"><div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" /></div>
 
   return (
@@ -64,6 +104,78 @@ export default function DashboardPage() {
         <span className="font-mono">{porStatus.bloqueado}</span> bloqueados ·{' '}
         <span className="font-mono">{porStatus.baixado}</span> baixados
       </p>
+
+      {/* Painéis analíticos */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Projeção de vencimentos */}
+        <div className="bg-white rounded-xl border border-gray-100 p-5 shadow-sm">
+          <h2 className="text-sm font-bold text-gray-700">Projeção de Vencimentos</h2>
+          <p className="text-xs text-gray-400 mb-4">Unidades a vencer (acumulado)</p>
+          <div className="flex flex-col gap-3">
+            {projecao.map((p, idx) => {
+              const cor = ['#dc2626', '#ea580c', '#d4a017'][idx]
+              return (
+                <div key={p.dias} className="flex items-center gap-3">
+                  <span className="text-xs font-semibold text-gray-600 w-20">Em {p.dias} dias</span>
+                  <div className="flex-1 bg-gray-100 rounded-full h-2.5">
+                    <div className="h-2.5 rounded-full transition-all" style={{ width: `${Math.round(p.un / projMax * 100)}%`, background: cor }} />
+                  </div>
+                  <div className="text-right w-24">
+                    <span className="text-sm font-mono font-extrabold" style={{ color: cor }}>{p.un}</span>
+                    <span className="text-[10px] text-gray-400"> un · {p.itens} it.</span>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+
+        {/* Cobertura de inspeção */}
+        <div className="bg-white rounded-xl border border-gray-100 p-5 shadow-sm">
+          <h2 className="text-sm font-bold text-gray-700">Cobertura de Inspeção</h2>
+          <p className="text-xs text-gray-400 mb-4">Endereços ativos já inspecionados</p>
+          <div className="flex items-center gap-5">
+            <div className="relative w-24 h-24 flex-shrink-0">
+              <svg viewBox="0 0 36 36" className="w-24 h-24 -rotate-90">
+                <circle cx="18" cy="18" r="15.9" fill="none" stroke="#f3f4f6" strokeWidth="3.5" />
+                <circle cx="18" cy="18" r="15.9" fill="none" stroke="#1f6feb" strokeWidth="3.5"
+                  strokeDasharray={`${cobertura.pct} 100`} strokeLinecap="round" />
+              </svg>
+              <div className="absolute inset-0 grid place-items-center">
+                <span className="text-lg font-extrabold text-gray-800">{cobertura.pct}%</span>
+              </div>
+            </div>
+            <div className="flex flex-col gap-2 text-xs">
+              <div><span className="font-mono font-bold text-gray-800">{cobertura.inspecionados}</span> <span className="text-gray-400">de {cobertura.total} inspecionados</span></div>
+              <div><span className="font-mono font-bold text-green-600">{cobertura.ultimos30}</span> <span className="text-gray-400">nos últimos 30 dias ({cobertura.pct30}%)</span></div>
+              <div><span className="font-mono font-bold text-amber-600">{cobertura.nunca}</span> <span className="text-gray-400">nunca inspecionados</span></div>
+            </div>
+          </div>
+        </div>
+
+        {/* Envelhecimento da quarentena */}
+        <div className="bg-white rounded-xl border border-gray-100 p-5 shadow-sm">
+          <h2 className="text-sm font-bold text-gray-700">Quarentena — Envelhecimento</h2>
+          <p className="text-xs text-gray-400 mb-4">Tempo aguardando devolução/descarte</p>
+          {quarentenaAging.total === 0 ? (
+            <div className="grid place-items-center h-24 text-sm text-gray-300">Nenhum produto em quarentena</div>
+          ) : (
+            <div className="flex flex-col gap-2.5">
+              {([['recente', 'Até 7 dias', '#16a34a'], ['medio', '7 a 30 dias', '#d4a017'], ['antigo', 'Mais de 30 dias', '#dc2626']] as const).map(([key, label, cor]) => (
+                <div key={key} className="flex items-center gap-3">
+                  <div className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ background: cor }} />
+                  <span className="text-xs text-gray-600 flex-1">{label}</span>
+                  <span className="text-sm font-mono font-extrabold" style={{ color: cor }}>{quarentenaAging[key]}</span>
+                </div>
+              ))}
+              <div className="border-t border-gray-100 pt-2 mt-1 flex justify-between text-xs">
+                <span className="text-gray-400">Total</span>
+                <span className="font-mono font-bold text-gray-700">{quarentenaAging.total} produtos · {quarentenaAging.un} un</span>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Distribuição por zona */}
