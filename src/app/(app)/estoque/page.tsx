@@ -33,6 +33,7 @@ export default function EstoquePage() {
   const [showForm, setShowForm] = useState(false)
   const [editItem, setEditItem] = useState<Item | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Item | null>(null)
+  const [fotoModal, setFotoModal] = useState<{ url: string; sku: string; descricao: string } | null>(null)
 
   type ItemResumo = { validade: string; quantidade: number }
 
@@ -246,9 +247,18 @@ export default function EstoquePage() {
                   <td className="px-4 py-3"><ZoneCell validade={item.validade} /></td>
                   <td className="px-4 py-3 whitespace-nowrap">
                     {item.ultima_inspecao ? (
-                      <div className="flex flex-col">
-                        <span className="text-gray-600 font-mono text-[11px]">{fmtDateTime(item.ultima_inspecao)}</span>
-                        {item.inspecionado_por && <span className="text-gray-400 text-[10px] truncate max-w-[110px]">{item.inspecionado_por}</span>}
+                      <div className="flex items-center gap-2">
+                        <div className="flex flex-col">
+                          <span className="text-gray-600 font-mono text-[11px]">{fmtDateTime(item.ultima_inspecao)}</span>
+                          {item.inspecionado_por && <span className="text-gray-400 text-[10px] truncate max-w-[110px]">{item.inspecionado_por}</span>}
+                        </div>
+                        {item.foto_inspecao && (
+                          <button
+                            onClick={() => setFotoModal({ url: item.foto_inspecao!, sku: item.sku, descricao: item.descricao })}
+                            title="Ver foto da inspeção"
+                            className="flex-shrink-0 w-7 h-7 grid place-items-center rounded-lg border border-blue-200 bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors"
+                          >📷</button>
+                        )}
                       </div>
                     ) : (
                       <span className="text-gray-300 text-[11px]">— nunca</span>
@@ -301,6 +311,24 @@ export default function EstoquePage() {
           <Button variant="ghost" onClick={() => setDeleteTarget(null)}>Cancelar</Button>
           <Button variant="danger" onClick={handleDelete}>Excluir</Button>
         </div>
+      </Modal>
+
+      {/* Modal — foto da inspeção */}
+      <Modal open={!!fotoModal} onClose={() => setFotoModal(null)} title="Foto da Inspeção">
+        {fotoModal && (
+          <div className="flex flex-col gap-3">
+            <div className="text-sm">
+              <span className="font-mono font-bold text-gray-800">{fotoModal.sku}</span>
+              <span className="text-gray-500"> — {fotoModal.descricao}</span>
+            </div>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={fotoModal.url} alt={`Foto ${fotoModal.sku}`} className="rounded-lg w-full max-h-[70vh] object-contain bg-gray-50 border border-gray-100" />
+            <a href={fotoModal.url} target="_blank" rel="noopener noreferrer"
+              className="text-xs text-blue-500 hover:text-blue-700 font-semibold text-center">
+              Abrir em nova aba ↗
+            </a>
+          </div>
+        )}
       </Modal>
     </div>
   )

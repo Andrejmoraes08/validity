@@ -16,11 +16,17 @@ export default function BloqueiosPage() {
   const { can } = usePerfílContext()
   const [tab, setTab] = useState<'bloqueados' | 'baixas'>('bloqueados')
   const [baixas, setBaixas] = useState<Baixa[]>([])
-  const [baixaTarget, setBaixaTarget] = useState<Item | null>(null)
+  const [baixaTarget, setBaixaTarget] = useState<{ sku: string; descricao: string; ids: string[]; qtd: number } | null>(null)
   const [nf, setNf] = useState('')
   const [responsavel, setResponsavel] = useState('')
+  const [baixando, setBaixando] = useState(false)
 
   const bloqueados = useMemo(() => itens.filter(i => i.status === 'bloqueado'), [itens])
+  const contarSku = useMemo(() => {
+    const m = new Map<string, Item[]>()
+    for (const i of bloqueados) { const a = m.get(i.sku) ?? []; a.push(i); m.set(i.sku, a) }
+    return m
+  }, [bloqueados])
 
   useEffect(() => {
     const load = async () => {
@@ -34,9 +40,15 @@ export default function BloqueiosPage() {
 
   const handleBaixa = async () => {
     if (!baixaTarget || !nf || !responsavel) return
-    const { error } = await baixarItem(baixaTarget.id, nf, responsavel)
-    if (error) toast('Erro ao registrar baixa', 'error')
-    else toast('Baixa registrada com sucesso')
+    setBaixando(true)
+    let erros = 0
+    for (const id of baixaTarget.ids) {
+      const { error } = await baixarItem(id, nf, responsavel)
+      if (error) erros++
+    }
+    setBaixando(false)
+    if (erros > 0) toast(`Concluído com ${erros} erro(s)`, 'error')
+    else toast(baixaTarget.ids.length > 1 ? `${baixaTarget.ids.length} baixas registradas` : 'Baixa registrada com sucesso')
     setBaixaTarget(null)
     setNf('')
     setResponsavel('')
@@ -93,7 +105,15 @@ export default function BloqueiosPage() {
                     <td className="px-4 py-3 text-gray-500">{item.bloqueado_por || '—'}</td>
                     {can('bloqueios.baixar') && (
                       <td className="px-4 py-3">
-                        <Button size="sm" variant="primary" onClick={() => setBaixaTarget(item)}>Registrar Baixa</Button>
+                        <div className="flex gap-2 flex-wrap">
+                          <Button size="sm" variant="primary" onClick={() => setBaixaTarget({ sku: item.sku, descricao: item.descricao, ids: [item.id], qtd: item.quantidade })}>Registrar Baixa</Button>
+                          {(contarSku.get(item.sku)?.length ?? 0) > 1 && (
+                            <Button size="sm" variant="secondary" onClick={() => {
+                              const grupo = contarSku.get(item.sku) ?? []
+                              setBaixaTarget({ sku: item.sku, descricao: item.descricao, ids: grupo.map(g => g.id), qtd: grupo.reduce((s, g) => s + g.quantidade, 0) })
+                            }}>Baixar SKU ({contarSku.get(item.sku)?.length})</Button>
+                          )}
+                        </div>
                       </td>
                     )}
                   </tr>
@@ -139,9 +159,18 @@ export default function BloqueiosPage() {
 
 
       <Modal open={!!baixaTarget} onClose={() => setBaixaTarget(null)} title="Registrar Baixa com NF">
-        <p className="text-sm text-gray-600 mb-4">
+        <p className="text-sm text-gray-600 mb-1">
           Registrando baixa de <strong>{baixaTarget?.sku}</strong> — {baixaTarget?.descricao}
         </p>
+        {baixaTarget && baixaTarget.ids.length > 1 && (
+          <div className="rounded-lg border border-blue-100 bg-blue-50 p-2.5 mb-4">
+            <p className="text-xs text-blue-700">
+              Baixa em lote: <strong>{baixaTarget.ids.length} posições</strong> deste SKU
+              ({baixaTarget.qtd} un no total) com a <strong>mesma NF</strong>.
+            </p>
+          </div>
+        )}
+        {baixaTarget && baixaTarget.ids.length === 1 && <div className="mb-4" />}
         <div className="flex flex-col gap-4">
           <div className="flex flex-col gap-1">
             <label className="text-xs font-semibold text-gray-600">Número da NF de Perda *</label>
@@ -165,8 +194,10 @@ export default function BloqueiosPage() {
           </div>
         </div>
         <div className="flex justify-end gap-3 mt-6">
-          <Button variant="ghost" onClick={() => setBaixaTarget(null)}>Cancelar</Button>
-          <Button variant="primary" onClick={handleBaixa} disabled={!nf || !responsavel}>Confirmar Baixa</Button>
+          <Button variant="ghost" onClick={() => setBaixaTarget(null)} disabled={baixando}>Cancelar</Button>
+          <Button variant="primary" onClick={handleBaixa} disabled={!nf || !responsavel || baixando}>
+            {baixando ? 'Processando…' : baixaTarget && baixaTarget.ids.length > 1 ? `Confirmar Baixa (${baixaTarget.ids.length})` : 'Confirmar Baixa'}
+          </Button>
         </div>
       </Modal>
     </div>
