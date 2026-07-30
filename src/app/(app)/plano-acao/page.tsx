@@ -180,6 +180,170 @@ export default function PlanoAcaoPage() {
     setResponsavel('')
   }
 
+  // Helper de dias restantes em texto
+  const diasTexto = (validade: string) => {
+    const d = diasParaVencer(validade)
+    return d < 0 ? `${Math.abs(d)}d vencido` : `${d}d`
+  }
+
+  // ── PDF GERAL: todas as seções do Plano de Ação num único documento ──────────
+  const exportarPDFGeral = async () => {
+    const { jsPDF } = await import('jspdf')
+    const autoTable = (await import('jspdf-autotable')).default
+    type DocComAuto = InstanceType<typeof jsPDF> & { lastAutoTable?: { finalY: number }; internal: { getNumberOfPages: () => number } }
+
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' }) as DocComAuto
+    const hoje = new Date().toLocaleDateString('pt-BR')
+    const hexToRgb = (hex: string): [number, number, number] => [
+      parseInt(hex.slice(1, 3), 16), parseInt(hex.slice(3, 5), 16), parseInt(hex.slice(5, 7), 16),
+    ]
+
+    // Cabeçalho principal
+    doc.setFillColor(26, 29, 36)
+    doc.rect(0, 0, 297, 20, 'F')
+    doc.setTextColor(255, 255, 255)
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(15)
+    doc.text('VALIDITY — Plano de Ação (Geral)', 10, 11)
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9)
+    doc.text(`Gerado em: ${hoje}`, 10, 17)
+
+    let y = 26
+    const secao = (titulo: string, cor: string, head: string[], body: (string | number)[][], corValidadeCol?: number, fonteZona?: { validade: string }[]) => {
+      if (body.length === 0) return
+      if (y > 175) { doc.addPage(); y = 15 }
+      const [r, g, b] = hexToRgb(cor)
+      doc.setFillColor(r, g, b)
+      doc.rect(10, y, 277, 7, 'F')
+      doc.setTextColor(255, 255, 255); doc.setFont('helvetica', 'bold'); doc.setFontSize(10)
+      doc.text(`${titulo}  (${body.length})`, 12, y + 5)
+      y += 9
+      autoTable(doc, {
+        startY: y,
+        head: [head], body,
+        styles: { fontSize: 7.5, cellPadding: 2, font: 'helvetica', overflow: 'linebreak' },
+        headStyles: { fillColor: [55, 60, 70], textColor: 255, fontStyle: 'bold', fontSize: 7.5 },
+        alternateRowStyles: { fillColor: [248, 249, 251] },
+        margin: { left: 10, right: 10 },
+        didParseCell: (data) => {
+          if (corValidadeCol !== undefined && data.section === 'body' && data.column.index === corValidadeCol && fonteZona) {
+            const linha = fonteZona[data.row.index]
+            if (!linha) return
+            const z = getZone(linha.validade)
+            data.cell.styles.fillColor = hexToRgb(z.color)
+            data.cell.styles.textColor = z.textColor === '#ffffff' ? [255, 255, 255] : [26, 29, 36]
+            data.cell.styles.fontStyle = 'bold'
+          }
+        },
+      })
+      y = (doc.lastAutoTable?.finalY ?? y) + 8
+    }
+
+    // 1. Resumo consolidado
+    secao('Resumo Consolidado (vencido + crítico + segregados)', '#1a1d24',
+      ['SKU', 'Descrição', 'Validade', 'Dias', 'Qtde Total'],
+      consolidado.map(gp => [gp.sku, gp.descricao, fmtDate(gp.validade), diasTexto(gp.validade), gp.quantidade]),
+      2, consolidado)
+
+    // 2. Segregados
+    secao('Segregados — aguardando confirmação de bloqueio', '#ea580c',
+      ['SKU', 'Descrição', 'Lote', 'Endereço', 'Qtd', 'Validade', 'Segregado por', 'Em'],
+      segregados.map(i => [i.sku, i.descricao, i.lote, i.endereco_frac || i.endereco_gran, i.quantidade,
+        fmtDate(i.validade), i.segregado_por || '—', i.segregado_em ? new Date(i.segregado_em).toLocaleDateString('pt-BR') : '—']),
+      5, segregados)
+
+    // 3. Produtos em quarentena (consolidado)
+    secao('Produtos em Quarentena — aguardando devolução/descarte', '#7c3aed',
+      ['SKU', 'Descrição', 'Qtde Total'],
+      quarentenaConsolidada.map(gp => [gp.sku, gp.descricao, gp.quantidade]))
+
+    // 4. Zona crítica
+    secao('Zona Crítica — Vencidos e <30 dias', '#dc2626',
+      ['SKU', 'Descrição', 'Lote', 'Endereço', 'Qtd', 'Validade', 'Dias'],
+      vermelhos.map(i => [i.sku, i.descricao, i.lote, i.endereco_frac, i.quantidade, fmtDate(i.validade), diasTexto(i.validade)]),
+      5, vermelhos)
+
+    // 5. Zona atenção
+    secao('Zona Atenção — 30 a 90 dias', '#d4a017',
+      ['SKU', 'Descrição', 'Lote', 'Endereço', 'Qtd', 'Validade', 'Dias', 'Últ. Inspeção'],
+      amarelos.map(i => [i.sku, i.descricao, i.lote, i.endereco_frac, i.quantidade, fmtDate(i.validade), diasTexto(i.validade),
+        i.ultima_inspecao ? fmtDateTime(i.ultima_inspecao) : 'nunca']),
+      5, amarelos)
+
+    const pageCount = doc.internal.getNumberOfPages()
+    for (let i = 1; i <= pageCount; i++) {
+      doc.setPage(i)
+      doc.setFontSize(7); doc.setTextColor(150)
+      doc.text(`Página ${i} de ${pageCount}`, 287, 205, { align: 'right' })
+      doc.text('VALIDITY · Gestão de Validade de Estoque · GRF Distribuição', 10, 205)
+    }
+    doc.save(`plano-acao-geral-${new Date().toISOString().split('T')[0]}.pdf`)
+    toast('PDF geral gerado')
+  }
+
+  // ── EXCEL: uma aba por tabela (xlsx-js-style p/ células coloridas) ───────────
+  const exportarExcel = async () => {
+    const XLSX = (await import('xlsx-js-style')).default
+    const wb = XLSX.utils.book_new()
+
+    // Resumo consolidado — com formatação colorida por zona
+    const resumoRows = consolidado.map(gp => ({
+      SKU: gp.sku, Descrição: gp.descricao, Validade: fmtDate(gp.validade),
+      Dias: diasTexto(gp.validade), 'Qtde Total': gp.quantidade,
+    }))
+    const wsResumo = XLSX.utils.json_to_sheet(resumoRows)
+    wsResumo['!cols'] = [{ wch: 10 }, { wch: 48 }, { wch: 12 }, { wch: 12 }, { wch: 12 }]
+    // Cor de fundo na célula de validade (coluna C) conforme a zona
+    consolidado.forEach((gp, idx) => {
+      const ref = XLSX.utils.encode_cell({ r: idx + 1, c: 2 })
+      const z = getZone(gp.validade)
+      const cell = wsResumo[ref]
+      if (cell) {
+        cell.s = {
+          fill: { patternType: 'solid', fgColor: { rgb: z.color.replace('#', '').toUpperCase() } },
+          font: { color: { rgb: z.textColor === '#ffffff' ? 'FFFFFF' : '1A1D24' }, bold: true },
+        }
+      }
+    })
+    XLSX.utils.book_append_sheet(wb, wsResumo, 'Resumo Consolidado')
+
+    // Segregados
+    const wsSeg = XLSX.utils.json_to_sheet(segregados.map(i => ({
+      SKU: i.sku, Descrição: i.descricao, Lote: i.lote, Endereço: i.endereco_frac || i.endereco_gran,
+      Qtd: i.quantidade, Validade: fmtDate(i.validade), Dias: diasTexto(i.validade),
+      'Segregado por': i.segregado_por || '', Em: i.segregado_em ? fmtDateTime(i.segregado_em) : '',
+    })))
+    wsSeg['!cols'] = [{ wch: 10 }, { wch: 40 }, { wch: 12 }, { wch: 18 }, { wch: 8 }, { wch: 12 }, { wch: 12 }, { wch: 18 }, { wch: 16 }]
+    XLSX.utils.book_append_sheet(wb, wsSeg, 'Segregados')
+
+    // Produtos em quarentena
+    const wsQuar = XLSX.utils.json_to_sheet(quarentenaConsolidada.map(gp => ({
+      SKU: gp.sku, Descrição: gp.descricao, 'Qtde Total': gp.quantidade,
+    })))
+    wsQuar['!cols'] = [{ wch: 10 }, { wch: 48 }, { wch: 12 }]
+    XLSX.utils.book_append_sheet(wb, wsQuar, 'Quarentena')
+
+    // Zona crítica
+    const wsVerm = XLSX.utils.json_to_sheet(vermelhos.map(i => ({
+      SKU: i.sku, Descrição: i.descricao, Lote: i.lote, Endereço: i.endereco_frac,
+      Qtd: i.quantidade, Validade: fmtDate(i.validade), Dias: diasTexto(i.validade),
+    })))
+    wsVerm['!cols'] = [{ wch: 10 }, { wch: 40 }, { wch: 12 }, { wch: 18 }, { wch: 8 }, { wch: 12 }, { wch: 12 }]
+    XLSX.utils.book_append_sheet(wb, wsVerm, 'Zona Crítica')
+
+    // Zona atenção
+    const wsAmar = XLSX.utils.json_to_sheet(amarelos.map(i => ({
+      SKU: i.sku, Descrição: i.descricao, Lote: i.lote, Endereço: i.endereco_frac,
+      Qtd: i.quantidade, Validade: fmtDate(i.validade), Dias: diasTexto(i.validade),
+      'Últ. Inspeção': i.ultima_inspecao ? fmtDateTime(i.ultima_inspecao) : 'nunca',
+      Inspetor: i.inspecionado_por || '',
+    })))
+    wsAmar['!cols'] = [{ wch: 10 }, { wch: 40 }, { wch: 12 }, { wch: 18 }, { wch: 8 }, { wch: 12 }, { wch: 12 }, { wch: 18 }, { wch: 16 }]
+    XLSX.utils.book_append_sheet(wb, wsAmar, 'Zona Atenção')
+
+    XLSX.writeFile(wb, `plano-acao-${new Date().toISOString().split('T')[0]}.xlsx`)
+    toast('Excel gerado')
+  }
+
   const exportarPDF = async (items: Item[], zonaLabel: string) => {
     const { jsPDF } = await import('jspdf')
     const autoTable = (await import('jspdf-autotable')).default
@@ -468,9 +632,17 @@ export default function PlanoAcaoPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-xl font-extrabold text-gray-900">Plano de Ação</h1>
-        <p className="text-sm text-gray-400">Itens que requerem atenção imediata ou monitoramento</p>
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <h1 className="text-xl font-extrabold text-gray-900">Plano de Ação</h1>
+          <p className="text-sm text-gray-400">Itens que requerem atenção imediata ou monitoramento</p>
+        </div>
+        {can('plano.exportar') && (
+          <div className="flex gap-2">
+            <Button variant="secondary" size="sm" onClick={exportarPDFGeral}>📄 PDF Geral</Button>
+            <Button variant="secondary" size="sm" onClick={exportarExcel}>📊 Excel</Button>
+          </div>
+        )}
       </div>
 
       {/* Resumo Consolidado — por SKU + validade (somente consulta) */}
