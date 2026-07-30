@@ -12,7 +12,7 @@ import { supabase } from '@/lib/supabase'
 import type { Item } from '@/lib/types'
 
 export default function PlanoAcaoPage() {
-  const { itens, loading, bloquearItem, enviarQuarentena, baixarQuarentena, estornarItem } = useItens()
+  const { itens, loading, bloquearItem, enviarQuarentena, bloquearQuarentena, estornarItem } = useItens()
   const { toast } = useToast()
   const { can } = usePerfílContext()
   const [bloqueioTarget, setBloqueioTarget] = useState<Item | null>(null)
@@ -165,11 +165,11 @@ export default function PlanoAcaoPage() {
     const totalQtd = grupo.reduce((s, i) => s + i.quantidade, 0)
     let erros = 0
     for (const i of grupo) {
-      const { error } = await baixarQuarentena(i.id, resolverQuar.motivo, responsavel)
+      const { error } = await bloquearQuarentena(i.id, resolverQuar.motivo, responsavel)
       if (error) erros++
     }
     if (erros > 0) { toast(`Concluído com ${erros} erro(s)`, 'error'); setEnviando(false); return }
-    toast(`${resolverQuar.sku}: baixa por ${resolverQuar.motivo} registrada`)
+    toast(`${resolverQuar.sku}: enviado para Bloqueados (${resolverQuar.motivo}) — aguardando NF`)
     await notificar(
       resolverQuar.motivo === 'Descarte' ? 'descarte' : 'devolucao',
       { sku: resolverQuar.sku, descricao: resolverQuar.descricao, quantidade: totalQtd },
@@ -783,9 +783,11 @@ export default function PlanoAcaoPage() {
         </p>
         <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 mb-4">
           <p className="text-xs text-amber-700">
-            Todos os itens deste produto em quarentena terão o <strong>saldo baixado do sistema</strong>
+            Todos os itens deste produto em quarentena
             {' '}({quarentenaItens.filter(i => i.sku === resolverQuar?.sku).reduce((s, i) => s + i.quantidade, 0)} un
-            em {quarentenaItens.filter(i => i.sku === resolverQuar?.sku).length} posição(ões)). Não há como desfazer.
+            em {quarentenaItens.filter(i => i.sku === resolverQuar?.sku).length} posição(ões)) irão para
+            <strong> Bloqueios e Perdas</strong> com o motivo <strong>{resolverQuar?.motivo}</strong>,
+            aguardando a <strong>logística lançar a NF</strong> para a baixa efetiva.
           </p>
         </div>
         <div className="flex flex-col gap-1 mb-6">

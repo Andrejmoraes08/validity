@@ -71,7 +71,7 @@ export default function BloqueiosPage() {
             <table className="w-full text-xs">
               <thead className="bg-gray-50 border-b border-gray-100">
                 <tr>
-                  {['SKU', 'Descrição', 'Lote', 'Qtd', 'Validade', 'Bloqueado em', 'Por', ...(can('bloqueios.baixar') ? ['Ação'] : [])].map(h => (
+                  {['SKU', 'Descrição', 'Lote', 'Qtd', 'Validade', 'Motivo', 'Bloqueado em', 'Por', ...(can('bloqueios.baixar') ? ['Ação'] : [])].map(h => (
                     <th key={h} className="px-4 py-3 text-left text-gray-400 font-semibold text-[11px] uppercase">{h}</th>
                   ))}
                 </tr>
@@ -84,6 +84,11 @@ export default function BloqueiosPage() {
                     <td className="px-4 py-3 font-mono text-gray-500">{item.lote}</td>
                     <td className="px-4 py-3 font-mono font-bold">{item.quantidade}</td>
                     <td className="px-4 py-3"><ZoneCell validade={item.validade} /></td>
+                    <td className="px-4 py-3">
+                      {item.motivo_baixa
+                        ? <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-purple-50 text-purple-700 border border-purple-200">{item.motivo_baixa}</span>
+                        : <span className="text-gray-400 text-[11px]">Validade</span>}
+                    </td>
                     <td className="px-4 py-3 text-gray-500">{item.bloqueado_em ? fmtDateTime(item.bloqueado_em) : '—'}</td>
                     <td className="px-4 py-3 text-gray-500">{item.bloqueado_por || '—'}</td>
                     {can('bloqueios.baixar') && (

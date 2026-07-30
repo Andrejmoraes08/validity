@@ -17,6 +17,7 @@ export interface Item {
   bloqueado_por?: string
   quarentena_em?: string
   quarentena_por?: string
+  motivo_baixa?: string
   baixado_em?: string
   ultima_inspecao?: string
   inspecionado_por?: string

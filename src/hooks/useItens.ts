@@ -88,42 +88,30 @@ export function useItens() {
     return { error }
   }
 
-  // Baixa de item em quarentena com motivo (Devolução ao fornecedor / Descarte)
-  const baixarQuarentena = async (id: string, motivo: string, responsavel: string) => {
+  // Quarentena resolvida (Devolução/Descarte): item vai para BLOQUEADOS com o motivo,
+  // aguardando a logística lançar a NF. A baixa efetiva acontece em Bloqueios e Perdas.
+  const bloquearQuarentena = async (id: string, motivo: string, responsavel: string) => {
     const item = itens.find(i => i.id === id)
     if (!item) return { error: new Error('Item não encontrado') }
     const { data: { user } } = await supabase.auth.getUser()
     const now = new Date().toISOString()
 
-    const { error: errUpdate } = await supabase.from('itens').update({
-      status: 'baixado',
-      baixado_em: now,
-      quantidade: 0,
+    const { error } = await supabase.from('itens').update({
+      status: 'bloqueado',
+      motivo_baixa: motivo,
+      bloqueado_em: now,
+      bloqueado_por: responsavel,
     }).eq('id', id)
 
-    if (!errUpdate) {
-      await supabase.from('baixas').insert({
-        item_id: id,
-        sku: item.sku,
-        descricao: item.descricao,
-        lote: item.lote,
-        endereco_frac: item.endereco_frac,
-        endereco_gran: item.endereco_gran,
-        quantidade: item.quantidade,
-        validade: item.validade,
-        nf: '—',
-        motivo,
-        responsavel,
-        user_id: user!.id,
-      })
+    if (!error) {
       await supabase.from('historico').insert({
-        descricao: `Baixa por ${motivo}: ${item.sku} — ${item.endereco_frac || item.endereco_gran} (qtd ${item.quantidade})`,
+        descricao: `Quarentena → ${motivo}: ${item.sku} — ${item.endereco_frac || item.endereco_gran} (qtd ${item.quantidade}) · aguardando NF`,
         responsavel,
         user_id: user!.id,
       })
       await fetchItens()
     }
-    return { error: errUpdate }
+    return { error }
   }
 
   // Estorno de segregação: item volta ao estoque ativo
@@ -171,11 +159,12 @@ export function useItens() {
         quantidade: item.quantidade,
         validade: item.validade,
         nf,
+        motivo: item.motivo_baixa || null,
         responsavel,
         user_id: user!.id,
       })
       await supabase.from('historico').insert({
-        descricao: `Baixa registrada — NF ${nf}`,
+        descricao: `Baixa registrada — NF ${nf}${item.motivo_baixa ? ` (${item.motivo_baixa})` : ''}`,
         responsavel,
         user_id: user!.id,
       })
@@ -184,5 +173,5 @@ export function useItens() {
     return { error: errUpdate }
   }
 
-  return { itens, loading, fetchItens, addItem, updateItem, deleteItem, bloquearItem, enviarQuarentena, baixarQuarentena, estornarItem, baixarItem }
+  return { itens, loading, fetchItens, addItem, updateItem, deleteItem, bloquearItem, enviarQuarentena, bloquearQuarentena, estornarItem, baixarItem }
 }
