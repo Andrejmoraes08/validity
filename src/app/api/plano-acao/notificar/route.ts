@@ -12,7 +12,10 @@ export const runtime = 'nodejs'
 const ACOES: Record<string, { titulo: string; cor: string; verbo: string }> = {
   solicitar_bloqueio:  { titulo: 'Solicitação de Bloqueio', cor: '#dc2626', verbo: 'solicitou o bloqueio de' },
   bloqueio_confirmado: { titulo: 'Bloqueio Confirmado',     cor: '#7c3aed', verbo: 'confirmou o bloqueio de' },
-  estorno:             { titulo: 'Estorno de Segregação',   cor: '#1f6feb', verbo: 'estornou a segregação de' },
+  quarentena:          { titulo: 'Enviado para Quarentena', cor: '#7c3aed', verbo: 'enviou para quarentena' },
+  devolucao:           { titulo: 'Devolução ao Fornecedor', cor: '#0e7490', verbo: 'baixou (devolução ao fornecedor)' },
+  descarte:            { titulo: 'Descarte',                 cor: '#1a1d24', verbo: 'baixou (descarte)' },
+  estorno:             { titulo: 'Estorno para Venda',      cor: '#1f6feb', verbo: 'estornou para venda' },
 }
 
 // Extrai nome e e-mail de "Nome <email>" ou "email"

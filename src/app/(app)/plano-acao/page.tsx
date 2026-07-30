@@ -26,19 +26,19 @@ export default function PlanoAcaoPage() {
   const [resumoAberto, setResumoAberto] = useState(true)
 
   // Dispara o e-mail de notificação para os usuários com acesso ao Plano de Ação
-  const notificar = async (acao: string, item: Item, resp: string, observacao = '') => {
+  type DadosEmail = { sku: string; descricao: string; endereco?: string; validade?: string; quantidade?: number | string }
+  const itemParaDados = (i: Item): DadosEmail => ({
+    sku: i.sku, descricao: i.descricao, validade: i.validade,
+    quantidade: i.quantidade, endereco: i.endereco_frac || i.endereco_gran,
+  })
+
+  const notificar = async (acao: string, dados: DadosEmail, resp: string, observacao = '') => {
     try {
       const { data: { session } } = await supabase.auth.getSession()
       const res = await fetch('/api/plano-acao/notificar', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token ?? ''}` },
-        body: JSON.stringify({
-          acao, responsavel: resp, obs: observacao,
-          item: {
-            sku: item.sku, descricao: item.descricao, validade: item.validade,
-            quantidade: item.quantidade, endereco: item.endereco_frac || item.endereco_gran,
-          },
-        }),
+        body: JSON.stringify({ acao, responsavel: resp, obs: observacao, item: dados }),
       })
       const json = await res.json().catch(() => ({}))
       if (!res.ok) { toast(json.error ?? 'Ação registrada, mas o e-mail falhou', 'error'); return }
@@ -108,7 +108,7 @@ export default function PlanoAcaoPage() {
   const handleSolicitar = async () => {
     if (!solicitarTarget || !responsavel) return
     setEnviando(true)
-    await notificar('solicitar_bloqueio', solicitarTarget, responsavel, obs)
+    await notificar('solicitar_bloqueio', itemParaDados(solicitarTarget), responsavel, obs)
     setEnviando(false)
     setSolicitarTarget(null)
     setResponsavel('')
@@ -122,7 +122,7 @@ export default function PlanoAcaoPage() {
     const { error } = await bloquearItem(alvo.id, responsavel)
     if (error) { toast('Erro ao bloquear item', 'error'); setEnviando(false); return }
     toast(`${alvo.sku} bloqueado`)
-    await notificar('bloqueio_confirmado', alvo, responsavel, obs)
+    await notificar('bloqueio_confirmado', itemParaDados(alvo), responsavel, obs)
     setEnviando(false)
     setBloqueioTarget(null)
     setResponsavel('')
@@ -136,7 +136,7 @@ export default function PlanoAcaoPage() {
     const { error } = await estornarItem(alvo.id, responsavel)
     if (error) { toast('Erro ao estornar', 'error'); setEnviando(false); return }
     toast(`${alvo.sku} retornou ao estoque ativo`)
-    await notificar('estorno', alvo, responsavel, obs)
+    await notificar('estorno', itemParaDados(alvo), responsavel, obs)
     setEnviando(false)
     setEstornoTarget(null)
     setResponsavel('')
@@ -147,9 +147,11 @@ export default function PlanoAcaoPage() {
   const handleQuarentena = async () => {
     if (!quarentenaTarget || !responsavel) return
     setEnviando(true)
-    const { error } = await enviarQuarentena(quarentenaTarget.id, responsavel)
-    if (error) toast('Erro ao enviar para quarentena', 'error')
-    else toast(`${quarentenaTarget.sku} enviado para quarentena`)
+    const alvo = quarentenaTarget
+    const { error } = await enviarQuarentena(alvo.id, responsavel)
+    if (error) { toast('Erro ao enviar para quarentena', 'error'); setEnviando(false); return }
+    toast(`${alvo.sku} enviado para quarentena`)
+    await notificar('quarentena', itemParaDados(alvo), responsavel)
     setEnviando(false)
     setQuarentenaTarget(null)
     setResponsavel('')
@@ -159,15 +161,21 @@ export default function PlanoAcaoPage() {
   const handleResolverQuar = async () => {
     if (!resolverQuar || !responsavel) return
     setEnviando(true)
-    const ids = quarentenaItens.filter(i => i.sku === resolverQuar.sku).map(i => i.id)
+    const grupo = quarentenaItens.filter(i => i.sku === resolverQuar.sku)
+    const totalQtd = grupo.reduce((s, i) => s + i.quantidade, 0)
     let erros = 0
-    for (const id of ids) {
-      const { error } = await baixarQuarentena(id, resolverQuar.motivo, responsavel)
+    for (const i of grupo) {
+      const { error } = await baixarQuarentena(i.id, resolverQuar.motivo, responsavel)
       if (error) erros++
     }
+    if (erros > 0) { toast(`Concluído com ${erros} erro(s)`, 'error'); setEnviando(false); return }
+    toast(`${resolverQuar.sku}: baixa por ${resolverQuar.motivo} registrada`)
+    await notificar(
+      resolverQuar.motivo === 'Descarte' ? 'descarte' : 'devolucao',
+      { sku: resolverQuar.sku, descricao: resolverQuar.descricao, quantidade: totalQtd },
+      responsavel,
+    )
     setEnviando(false)
-    if (erros > 0) toast(`Concluído com ${erros} erro(s)`, 'error')
-    else toast(`${resolverQuar.sku}: baixa por ${resolverQuar.motivo} registrada`)
     setResolverQuar(null)
     setResponsavel('')
   }
