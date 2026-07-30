@@ -280,68 +280,109 @@ export default function PlanoAcaoPage() {
     toast('PDF geral gerado')
   }
 
-  // ── EXCEL: uma aba por tabela (xlsx-js-style p/ células coloridas) ───────────
+  // ── EXCEL: uma aba por tabela, com visual do PDF (xlsx-js-style) ─────────────
   const exportarExcel = async () => {
-    const XLSX = (await import('xlsx-js-style')).default
+    /* eslint-disable @typescript-eslint/no-explicit-any */
+    const XLSX = (await import('xlsx-js-style')).default as any
     const wb = XLSX.utils.book_new()
+    const hoje = new Date().toLocaleDateString('pt-BR')
 
-    // Resumo consolidado — com formatação colorida por zona
-    const resumoRows = consolidado.map(gp => ({
-      SKU: gp.sku, Descrição: gp.descricao, Validade: fmtDate(gp.validade),
-      Dias: diasTexto(gp.validade), 'Qtde Total': gp.quantidade,
-    }))
-    const wsResumo = XLSX.utils.json_to_sheet(resumoRows)
-    wsResumo['!cols'] = [{ wch: 10 }, { wch: 48 }, { wch: 12 }, { wch: 12 }, { wch: 12 }]
-    // Cor de fundo na célula de validade (coluna C) conforme a zona
-    consolidado.forEach((gp, idx) => {
-      const ref = XLSX.utils.encode_cell({ r: idx + 1, c: 2 })
-      const z = getZone(gp.validade)
-      const cell = wsResumo[ref]
-      if (cell) {
-        cell.s = {
-          fill: { patternType: 'solid', fgColor: { rgb: z.color.replace('#', '').toUpperCase() } },
-          font: { color: { rgb: z.textColor === '#ffffff' ? 'FFFFFF' : '1A1D24' }, bold: true },
-        }
+    const linha = { style: 'thin', color: { rgb: 'E1E4EA' } }
+    const bordas = { top: linha, bottom: linha, left: linha, right: linha }
+
+    // Monta uma aba estilizada: título colorido, subtítulo, cabeçalho escuro, zebra, bordas.
+    // corValidadeCol/zonaFonte pintam a coluna de validade por zona.
+    const montarAba = (
+      nome: string, titulo: string, corHex: string,
+      headers: string[], rows: (string | number)[][],
+      larguras: number[], corValidadeCol?: number, zonaFonte?: { validade: string }[],
+    ) => {
+      const corRGB = corHex.replace('#', '').toUpperCase()
+      const nc = headers.length
+      const aoa: (string | number)[][] = []
+      aoa.push([titulo])
+      aoa.push([`Gerado em ${hoje}  ·  ${rows.length} ${rows.length === 1 ? 'registro' : 'registros'}`])
+      aoa.push(headers)
+      rows.forEach(r => aoa.push(r))
+      const ws = XLSX.utils.aoa_to_sheet(aoa)
+
+      ws['!merges'] = [
+        { s: { r: 0, c: 0 }, e: { r: 0, c: nc - 1 } },
+        { s: { r: 1, c: 0 }, e: { r: 1, c: nc - 1 } },
+      ]
+      ws['!rows'] = [{ hpt: 26 }, { hpt: 16 }, { hpt: 20 }]
+      ws['!cols'] = larguras.map(w => ({ wch: w }))
+      ws['!freeze'] = { xSplit: 0, ySplit: 3 }
+
+      const estilo = (r: number, c: number, s: object) => {
+        const ref = XLSX.utils.encode_cell({ r, c })
+        if (!ws[ref]) ws[ref] = { t: 's', v: '' }
+        ws[ref].s = s
       }
-    })
-    XLSX.utils.book_append_sheet(wb, wsResumo, 'Resumo Consolidado')
 
-    // Segregados
-    const wsSeg = XLSX.utils.json_to_sheet(segregados.map(i => ({
-      SKU: i.sku, Descrição: i.descricao, Lote: i.lote, Endereço: i.endereco_frac || i.endereco_gran,
-      Qtd: i.quantidade, Validade: fmtDate(i.validade), Dias: diasTexto(i.validade),
-      'Segregado por': i.segregado_por || '', Em: i.segregado_em ? fmtDateTime(i.segregado_em) : '',
-    })))
-    wsSeg['!cols'] = [{ wch: 10 }, { wch: 40 }, { wch: 12 }, { wch: 18 }, { wch: 8 }, { wch: 12 }, { wch: 12 }, { wch: 18 }, { wch: 16 }]
-    XLSX.utils.book_append_sheet(wb, wsSeg, 'Segregados')
+      // Título e subtítulo
+      estilo(0, 0, { fill: { patternType: 'solid', fgColor: { rgb: corRGB } }, font: { color: { rgb: 'FFFFFF' }, bold: true, sz: 14 }, alignment: { vertical: 'center', horizontal: 'left' } })
+      estilo(1, 0, { fill: { patternType: 'solid', fgColor: { rgb: 'F0F1F3' } }, font: { color: { rgb: '6B7280' }, sz: 9, italic: true }, alignment: { vertical: 'center', horizontal: 'left' } })
 
-    // Produtos em quarentena
-    const wsQuar = XLSX.utils.json_to_sheet(quarentenaConsolidada.map(gp => ({
-      SKU: gp.sku, Descrição: gp.descricao, 'Qtde Total': gp.quantidade,
-    })))
-    wsQuar['!cols'] = [{ wch: 10 }, { wch: 48 }, { wch: 12 }]
-    XLSX.utils.book_append_sheet(wb, wsQuar, 'Quarentena')
+      // Cabeçalho
+      for (let c = 0; c < nc; c++) {
+        estilo(2, c, { fill: { patternType: 'solid', fgColor: { rgb: '1A1D24' } }, font: { color: { rgb: 'FFFFFF' }, bold: true, sz: 10 }, alignment: { horizontal: 'center', vertical: 'center' }, border: bordas })
+      }
 
-    // Zona crítica
-    const wsVerm = XLSX.utils.json_to_sheet(vermelhos.map(i => ({
-      SKU: i.sku, Descrição: i.descricao, Lote: i.lote, Endereço: i.endereco_frac,
-      Qtd: i.quantidade, Validade: fmtDate(i.validade), Dias: diasTexto(i.validade),
-    })))
-    wsVerm['!cols'] = [{ wch: 10 }, { wch: 40 }, { wch: 12 }, { wch: 18 }, { wch: 8 }, { wch: 12 }, { wch: 12 }]
-    XLSX.utils.book_append_sheet(wb, wsVerm, 'Zona Crítica')
+      // Dados: zebra + bordas + coluna de validade colorida
+      rows.forEach((r, ri) => {
+        const rowIdx = ri + 3
+        const zebra = ri % 2 === 1
+        for (let c = 0; c < nc; c++) {
+          const s: any = {
+            font: { sz: 9, color: { rgb: '1A1D24' } },
+            alignment: { vertical: 'center', horizontal: typeof r[c] === 'number' ? 'center' : 'left' },
+            border: bordas,
+          }
+          if (zebra) s.fill = { patternType: 'solid', fgColor: { rgb: 'F8F9FB' } }
+          if (corValidadeCol !== undefined && c === corValidadeCol && zonaFonte?.[ri]) {
+            const z = getZone(zonaFonte[ri].validade)
+            s.fill = { patternType: 'solid', fgColor: { rgb: z.color.replace('#', '').toUpperCase() } }
+            s.font = { sz: 9, bold: true, color: { rgb: z.textColor === '#ffffff' ? 'FFFFFF' : '1A1D24' } }
+            s.alignment = { vertical: 'center', horizontal: 'center' }
+          }
+          estilo(rowIdx, c, s)
+        }
+      })
 
-    // Zona atenção
-    const wsAmar = XLSX.utils.json_to_sheet(amarelos.map(i => ({
-      SKU: i.sku, Descrição: i.descricao, Lote: i.lote, Endereço: i.endereco_frac,
-      Qtd: i.quantidade, Validade: fmtDate(i.validade), Dias: diasTexto(i.validade),
-      'Últ. Inspeção': i.ultima_inspecao ? fmtDateTime(i.ultima_inspecao) : 'nunca',
-      Inspetor: i.inspecionado_por || '',
-    })))
-    wsAmar['!cols'] = [{ wch: 10 }, { wch: 40 }, { wch: 12 }, { wch: 18 }, { wch: 8 }, { wch: 12 }, { wch: 12 }, { wch: 18 }, { wch: 16 }]
-    XLSX.utils.book_append_sheet(wb, wsAmar, 'Zona Atenção')
+      XLSX.utils.book_append_sheet(wb, ws, nome)
+    }
+
+    montarAba('Resumo Consolidado', 'VALIDITY · Resumo Consolidado', '#1a1d24',
+      ['SKU', 'Descrição', 'Validade', 'Dias', 'Qtde Total'],
+      consolidado.map(gp => [gp.sku, gp.descricao, fmtDate(gp.validade), diasTexto(gp.validade), gp.quantidade]),
+      [12, 50, 14, 14, 12], 2, consolidado)
+
+    montarAba('Segregados', 'VALIDITY · Segregados — aguardando bloqueio', '#ea580c',
+      ['SKU', 'Descrição', 'Lote', 'Endereço', 'Qtd', 'Validade', 'Dias', 'Segregado por', 'Em'],
+      segregados.map(i => [i.sku, i.descricao, i.lote, i.endereco_frac || i.endereco_gran, i.quantidade,
+        fmtDate(i.validade), diasTexto(i.validade), i.segregado_por || '', i.segregado_em ? fmtDateTime(i.segregado_em) : '']),
+      [12, 42, 14, 18, 8, 14, 12, 18, 18], 5, segregados)
+
+    montarAba('Quarentena', 'VALIDITY · Produtos em Quarentena', '#7c3aed',
+      ['SKU', 'Descrição', 'Qtde Total'],
+      quarentenaConsolidada.map(gp => [gp.sku, gp.descricao, gp.quantidade]),
+      [12, 50, 14])
+
+    montarAba('Zona Crítica', 'VALIDITY · Zona Crítica — Vencidos e <30 dias', '#dc2626',
+      ['SKU', 'Descrição', 'Lote', 'Endereço', 'Qtd', 'Validade', 'Dias'],
+      vermelhos.map(i => [i.sku, i.descricao, i.lote, i.endereco_frac, i.quantidade, fmtDate(i.validade), diasTexto(i.validade)]),
+      [12, 42, 14, 18, 8, 14, 12], 5, vermelhos)
+
+    montarAba('Zona Atenção', 'VALIDITY · Zona Atenção — 30 a 90 dias', '#d4a017',
+      ['SKU', 'Descrição', 'Lote', 'Endereço', 'Qtd', 'Validade', 'Dias', 'Últ. Inspeção', 'Inspetor'],
+      amarelos.map(i => [i.sku, i.descricao, i.lote, i.endereco_frac, i.quantidade, fmtDate(i.validade), diasTexto(i.validade),
+        i.ultima_inspecao ? fmtDateTime(i.ultima_inspecao) : 'nunca', i.inspecionado_por || '']),
+      [12, 42, 14, 18, 8, 14, 12, 18, 16], 5, amarelos)
 
     XLSX.writeFile(wb, `plano-acao-${new Date().toISOString().split('T')[0]}.xlsx`)
     toast('Excel gerado')
+    /* eslint-enable @typescript-eslint/no-explicit-any */
   }
 
   const exportarPDF = async (items: Item[], zonaLabel: string) => {
