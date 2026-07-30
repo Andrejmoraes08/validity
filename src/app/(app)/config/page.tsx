@@ -215,7 +215,7 @@ export default function ConfigPage() {
         return {
           'Data': dt.toLocaleDateString('pt-BR'),
           'Hora': dt.toLocaleTimeString('pt-BR'),
-          'Tipo': tipoEvento(h.descricao),
+          'Tipo': h.tipo || tipoEvento(h.descricao),
           'Evento': h.descricao,
           'Responsável': h.responsavel,
         }

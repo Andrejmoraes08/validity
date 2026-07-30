@@ -48,6 +48,7 @@ export interface Baixa {
 export interface Historico {
   id: string
   descricao: string
+  tipo?: string
   responsavel: string
   created_at: string
   user_id: string
