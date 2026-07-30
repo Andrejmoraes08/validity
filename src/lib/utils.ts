@@ -1,5 +1,12 @@
+// Valor-reserva de validade (quando a data não foi lida na importação).
+// Mantido no banco para a lógica; exibido mascarado ao usuário.
+export const VALIDADE_INDEFINIDA = '9999-12-31'
+export const LABEL_SEM_VALIDADE = 'Sem validade'
+export const semValidade = (dateStr: string) => !dateStr || dateStr.startsWith('9999')
+
 export function fmtDate(dateStr: string): string {
   if (!dateStr) return '—'
+  if (semValidade(dateStr)) return LABEL_SEM_VALIDADE
   const d = new Date(dateStr + 'T00:00:00')
   return d.toLocaleDateString('pt-BR')
 }

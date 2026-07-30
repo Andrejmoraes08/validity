@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
-import { normalizarEndereco } from '@/lib/utils'
+import { normalizarEndereco, semValidade } from '@/lib/utils'
 import type { Item } from '@/lib/types'
 
 interface ItemFormProps {
@@ -34,8 +34,10 @@ export function ItemForm({ open, onClose, onSave, initial, title }: ItemFormProp
 
   useEffect(() => {
     const base = initial ?? empty
-    setForm(base)
-    setValidadeTexto(isoToDisplay(base.validade ?? ''))
+    // Validade indefinida (9999) abre em branco para forçar a correção da data
+    const validadeInicial = semValidade(base.validade ?? '') ? '' : (base.validade ?? '')
+    setForm({ ...base, validade: validadeInicial })
+    setValidadeTexto(isoToDisplay(validadeInicial))
   }, [open, initial])
 
   const set = (key: keyof Item) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
