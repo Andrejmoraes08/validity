@@ -40,6 +40,12 @@ export function Topbar() {
             <div className="flex items-center gap-2 text-xs text-gray-500">
               <span className="hidden sm:block font-mono">{user.email}</span>
               <button
+                onClick={() => router.push('/trocar-senha')}
+                className="px-3 py-1.5 text-xs font-semibold text-gray-600 hover:text-blue-600 border border-gray-200 rounded-lg hover:border-blue-200 transition-colors"
+              >
+                Minha senha
+              </button>
+              <button
                 onClick={handleLogout}
                 className="px-3 py-1.5 text-xs font-semibold text-gray-600 hover:text-red-600 border border-gray-200 rounded-lg hover:border-red-200 transition-colors"
               >

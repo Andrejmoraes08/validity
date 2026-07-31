@@ -18,11 +18,22 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     if (!authLoading && !user) router.push('/login')
   }, [user, authLoading, router])
 
+  // Primeiro acesso: senha provisória → força a troca antes de qualquer coisa
+  useEffect(() => {
+    if (perfilLoading || !perfil) return
+    if (perfil.senha_provisoria && !pathname.startsWith('/trocar-senha')) {
+      router.replace('/trocar-senha?primeiro=1')
+    }
+  }, [perfil, perfilLoading, pathname, router])
+
   // Redireciona para a primeira aba permitida se tentar acessar uma sem permissão
   useEffect(() => {
     if (perfilLoading || !perfil || tabsPermitidas.length === 0) return
+    if (perfil.senha_provisoria) return // aguarda a troca de senha
     // Extrai a chave da rota atual: /dashboard → dashboard
     const rotaAtual = pathname.split('/')[1]
+    // /trocar-senha é acessível a todos (não depende de aba)
+    if (rotaAtual === 'trocar-senha') return
     if (rotaAtual && !tabsPermitidas.includes(rotaAtual)) {
       router.replace(`/${primeiraTab}`)
     }

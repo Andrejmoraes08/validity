@@ -13,6 +13,7 @@ export interface Perfil {
   role: Role
   tabs_permitidas: string[]
   permissoes: string[]
+  senha_provisoria?: boolean
   created_at: string
   updated_at: string
 }

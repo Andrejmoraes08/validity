@@ -89,6 +89,7 @@ export async function POST(req: Request) {
     nome,
     role,
     tabs_permitidas: tabs.length > 0 ? tabs : ['dashboard', 'estoque', 'inspecao', 'wms'],
+    senha_provisoria: true,
   })
   if (perfilErr) {
     return NextResponse.json(
@@ -130,6 +131,9 @@ export async function PATCH(req: Request) {
       { status: 400 },
     )
   }
+
+  // Senha definida pelo admin é provisória — o usuário troca no próximo acesso
+  await admin.from('perfis').update({ senha_provisoria: true }).eq('user_id', userId)
 
   // Busca o e-mail do alvo apenas para o registro no histórico
   const { data: perfilAlvo } = await admin
