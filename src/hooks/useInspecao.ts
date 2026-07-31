@@ -1,6 +1,7 @@
 'use client'
 import { useCallback, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { VALIDADE_INDEFINIDA } from '@/lib/utils'
 import type { Item } from '@/lib/types'
 
 export type TipoEndereco = 'frac' | 'gran'
@@ -241,6 +242,15 @@ export function useInspecao() {
     const { data: { user } } = await supabase.auth.getUser()
     const now = new Date().toISOString()
 
+    // Picking zerado (saldo final 0): libera a validade (fica "Sem validade")
+    // até uma nova inspeção com produto ativo.
+    const qtdFinal = quantidadeEncontrada !== undefined ? quantidadeEncontrada : item.quantidade
+    const zerarValidadePicking = ok && tipo === 'frac' && qtdFinal === 0
+    // Campo de validade a gravar: prioriza a liberação do picking zerado
+    const validadeUpdate = zerarValidadePicking
+      ? { validade: VALIDADE_INDEFINIDA }
+      : (validadeAlterada ? { validade: validadeEncontrada } : {})
+
     // Foto vai para o Storage; guarda a URL (não a imagem em memória)
     let fotoUrl: string | undefined
     if (foto) fotoUrl = await uploadFoto(foto, state.numero, item.sku)
@@ -259,17 +269,17 @@ export function useInspecao() {
         inspecionado_por: state.responsavel,
         observacao_inspecao: obs || null,
         ...(fotoUrl ? { foto_inspecao: fotoUrl } : {}),
-        ...(validadeAlterada ? { validade: validadeEncontrada } : {}),
+        ...validadeUpdate,
         ...(quantidadeEncontrada !== undefined ? { quantidade: quantidadeEncontrada } : {}),
         status: ok ? 'ativo' : 'segregado',
         ...(ok ? {} : { segregado_em: now, segregado_por: state.responsavel }),
       }).eq('id', item.id)
     } else {
-      if (obs || validadeAlterada || fotoUrl || quantidadeEncontrada !== undefined) {
+      if (obs || validadeAlterada || fotoUrl || quantidadeEncontrada !== undefined || zerarValidadePicking) {
         await supabase.from('itens').update({
           ...(obs ? { observacao_inspecao: obs } : {}),
           ...(fotoUrl ? { foto_inspecao: fotoUrl } : {}),
-          ...(validadeAlterada ? { validade: validadeEncontrada } : {}),
+          ...validadeUpdate,
           ...(quantidadeEncontrada !== undefined ? { quantidade: quantidadeEncontrada } : {}),
         }).eq('id', item.id)
       }
@@ -277,7 +287,8 @@ export function useInspecao() {
 
     const endLabel = tipo === 'frac' ? 'Picking' : 'Pulmão'
     const qtdInfo = !ok && quantidadeSegregada ? ` | Qtd: ${quantidadeSegregada}` : ''
-    const saldoInfo = quantidadeEncontrada !== undefined ? ` | Saldo registrado: ${quantidadeEncontrada}` : ''
+    const saldoInfo = (quantidadeEncontrada !== undefined ? ` | Saldo registrado: ${quantidadeEncontrada}` : '')
+      + (zerarValidadePicking ? ' | Picking zerado — validade liberada' : '')
     const descricao = (validadeAlterada
       ? `Inspeção #${state.numero} ${endLabel}: ${item.sku} — validade corrigida ${item.validade} → ${validadeEncontrada}${ok ? '' : ` | Segregado${qtdInfo}`}`
       : `Inspeção #${state.numero} ${endLabel}: ${item.sku} — ${ok ? 'OK' : `Segregado${qtdInfo}`}`) + saldoInfo

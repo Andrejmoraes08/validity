@@ -38,17 +38,33 @@ export default function BloqueiosPage() {
     load()
   }, [itens])
 
+  // Dispara e-mail aos usuários com acesso ao Plano de Ação ao lançar a baixa
+  const notificarBaixa = async (dados: { sku: string; descricao: string; quantidade: number }, resp: string, obs: string) => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      await fetch('/api/plano-acao/notificar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token ?? ''}` },
+        body: JSON.stringify({ acao: 'baixa_nf', responsavel: resp, obs, item: dados }),
+      })
+    } catch { /* baixa já registrada; e-mail é best-effort */ }
+  }
+
   const handleBaixa = async () => {
     if (!baixaTarget || !nf || !responsavel) return
     setBaixando(true)
+    const alvo = baixaTarget
     let erros = 0
-    for (const id of baixaTarget.ids) {
+    for (const id of alvo.ids) {
       const { error } = await baixarItem(id, nf, responsavel)
       if (error) erros++
     }
+    if (erros === 0) {
+      await notificarBaixa({ sku: alvo.sku, descricao: alvo.descricao, quantidade: alvo.qtd }, responsavel, `NF: ${nf}`)
+    }
     setBaixando(false)
     if (erros > 0) toast(`Concluído com ${erros} erro(s)`, 'error')
-    else toast(baixaTarget.ids.length > 1 ? `${baixaTarget.ids.length} baixas registradas` : 'Baixa registrada com sucesso')
+    else toast(alvo.ids.length > 1 ? `${alvo.ids.length} baixas registradas` : 'Baixa registrada com sucesso')
     setBaixaTarget(null)
     setNf('')
     setResponsavel('')

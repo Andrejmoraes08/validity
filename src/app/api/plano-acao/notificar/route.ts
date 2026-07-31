@@ -16,6 +16,7 @@ const ACOES: Record<string, { titulo: string; cor: string; verbo: string }> = {
   devolucao:           { titulo: 'Devolução ao Fornecedor', cor: '#0e7490', verbo: 'baixou (devolução ao fornecedor)' },
   descarte:            { titulo: 'Descarte',                 cor: '#1a1d24', verbo: 'baixou (descarte)' },
   estorno:             { titulo: 'Estorno para Venda',      cor: '#1f6feb', verbo: 'estornou para venda' },
+  baixa_nf:            { titulo: 'Baixa com NF',            cor: '#1a1d24', verbo: 'lançou a baixa (NF) de' },
 }
 
 // Extrai nome e e-mail de "Nome <email>" ou "email"
