@@ -14,13 +14,14 @@ import type { Item } from '@/lib/types'
 export default function PlanoAcaoPage() {
   const { itens, loading, bloquearItem, enviarQuarentena, bloquearQuarentena, estornarItem } = useItens()
   const { toast } = useToast()
-  const { can } = usePerfílContext()
+  const { can, perfil } = usePerfílContext()
+  // Responsável da ação = conta logada (não digitado)
+  const executor = perfil?.nome?.trim() || perfil?.email || 'sistema'
   const [bloqueioTarget, setBloqueioTarget] = useState<Item | null>(null)
   const [estornoTarget, setEstornoTarget] = useState<Item | null>(null)
   const [quarentenaTarget, setQuarentenaTarget] = useState<Item | null>(null)
   const [resolverQuar, setResolverQuar] = useState<{ sku: string; descricao: string; motivo: string } | null>(null)
   const [solicitarTarget, setSolicitarTarget] = useState<Item | null>(null)
-  const [responsavel, setResponsavel] = useState('')
   const [obs, setObs] = useState('')
   const [enviando, setEnviando] = useState(false)
   const [resumoAberto, setResumoAberto] = useState(true)
@@ -106,66 +107,62 @@ export default function PlanoAcaoPage() {
 
   // Solicitar bloqueio (Zona Crítica): NÃO muda o status, só notifica por e-mail
   const handleSolicitar = async () => {
-    if (!solicitarTarget || !responsavel) return
+    if (!solicitarTarget) return
     setEnviando(true)
-    await notificar('solicitar_bloqueio', itemParaDados(solicitarTarget), responsavel, obs)
+    await notificar('solicitar_bloqueio', itemParaDados(solicitarTarget), executor, obs)
     setEnviando(false)
     setSolicitarTarget(null)
-    setResponsavel('')
     setObs('')
   }
 
   const handleBloqueio = async () => {
-    if (!bloqueioTarget || !responsavel) return
+    if (!bloqueioTarget) return
     setEnviando(true)
     const alvo = bloqueioTarget
-    const { error } = await bloquearItem(alvo.id, responsavel)
+    const { error } = await bloquearItem(alvo.id, executor)
     if (error) { toast('Erro ao bloquear item', 'error'); setEnviando(false); return }
     toast(`${alvo.sku} bloqueado`)
-    await notificar('bloqueio_confirmado', itemParaDados(alvo), responsavel, obs)
+    await notificar('bloqueio_confirmado', itemParaDados(alvo), executor, obs)
     setEnviando(false)
     setBloqueioTarget(null)
-    setResponsavel('')
     setObs('')
   }
 
   const handleEstorno = async () => {
-    if (!estornoTarget || !responsavel) return
+    if (!estornoTarget) return
     setEnviando(true)
     const alvo = estornoTarget
-    const { error } = await estornarItem(alvo.id, responsavel)
+    const { error } = await estornarItem(alvo.id, executor)
     if (error) { toast('Erro ao estornar', 'error'); setEnviando(false); return }
     toast(`${alvo.sku} retornou ao estoque ativo`)
-    await notificar('estorno', itemParaDados(alvo), responsavel, obs)
+    await notificar('estorno', itemParaDados(alvo), executor, obs)
     setEnviando(false)
     setEstornoTarget(null)
-    setResponsavel('')
     setObs('')
   }
 
   // Enviar segregado para quarentena (não muda saldo; só move de fila)
   const handleQuarentena = async () => {
-    if (!quarentenaTarget || !responsavel) return
+    if (!quarentenaTarget) return
     setEnviando(true)
     const alvo = quarentenaTarget
-    const { error } = await enviarQuarentena(alvo.id, responsavel)
+    const { error } = await enviarQuarentena(alvo.id, executor)
     if (error) { toast('Erro ao enviar para quarentena', 'error'); setEnviando(false); return }
     toast(`${alvo.sku} enviado para quarentena`)
-    await notificar('quarentena', itemParaDados(alvo), responsavel)
+    await notificar('quarentena', itemParaDados(alvo), executor)
     setEnviando(false)
     setQuarentenaTarget(null)
-    setResponsavel('')
   }
 
   // Resolver quarentena por SKU: baixa TODOS os itens daquele produto (devolução/descarte)
   const handleResolverQuar = async () => {
-    if (!resolverQuar || !responsavel) return
+    if (!resolverQuar) return
     setEnviando(true)
     const grupo = quarentenaItens.filter(i => i.sku === resolverQuar.sku)
     const totalQtd = grupo.reduce((s, i) => s + i.quantidade, 0)
     let erros = 0
     for (const i of grupo) {
-      const { error } = await bloquearQuarentena(i.id, resolverQuar.motivo, responsavel)
+      const { error } = await bloquearQuarentena(i.id, resolverQuar.motivo, executor)
       if (error) erros++
     }
     if (erros > 0) { toast(`Concluído com ${erros} erro(s)`, 'error'); setEnviando(false); return }
@@ -173,11 +170,10 @@ export default function PlanoAcaoPage() {
     await notificar(
       resolverQuar.motivo === 'Descarte' ? 'descarte' : 'devolucao',
       { sku: resolverQuar.sku, descricao: resolverQuar.descricao, quantidade: totalQtd },
-      responsavel,
+      executor,
     )
     setEnviando(false)
     setResolverQuar(null)
-    setResponsavel('')
   }
 
   // Helper de dias restantes em texto
@@ -782,9 +778,9 @@ export default function PlanoAcaoPage() {
                     {(can('plano.bloquear') || can('plano.quarentena') || can('plano.estornar')) && (
                       <td className="px-4 py-3">
                         <div className="flex gap-2 flex-wrap">
-                          {can('plano.bloquear') && <Button size="sm" variant="danger" onClick={() => { setBloqueioTarget(item); setResponsavel(''); setObs('') }}>Confirmar Bloqueio</Button>}
-                          {can('plano.quarentena') && <Button size="sm" variant="ghost" className="!bg-amber-500 hover:!bg-amber-600 !text-white !border-transparent" onClick={() => { setQuarentenaTarget(item); setResponsavel('') }}>Enviar p/ Quarentena</Button>}
-                          {can('plano.estornar') && <Button size="sm" variant="ghost" className="!bg-green-600 hover:!bg-green-700 !text-white !border-transparent" onClick={() => { setEstornoTarget(item); setResponsavel(''); setObs('') }}>Estornar p/ Venda</Button>}
+                          {can('plano.bloquear') && <Button size="sm" variant="danger" onClick={() => { setBloqueioTarget(item); setObs('') }}>Confirmar Bloqueio</Button>}
+                          {can('plano.quarentena') && <Button size="sm" variant="ghost" className="!bg-amber-500 hover:!bg-amber-600 !text-white !border-transparent" onClick={() => { setQuarentenaTarget(item) }}>Enviar p/ Quarentena</Button>}
+                          {can('plano.estornar') && <Button size="sm" variant="ghost" className="!bg-green-600 hover:!bg-green-700 !text-white !border-transparent" onClick={() => { setEstornoTarget(item); setObs('') }}>Estornar p/ Venda</Button>}
                         </div>
                       </td>
                     )}
@@ -826,8 +822,8 @@ export default function PlanoAcaoPage() {
                     {can('plano.quarentena_resolver') && (
                       <td className="px-4 py-3">
                         <div className="flex gap-2 flex-wrap">
-                          <Button size="sm" variant="secondary" onClick={() => { setResolverQuar({ sku: g.sku, descricao: g.descricao, motivo: 'Devolução ao fornecedor' }); setResponsavel('') }}>Devolução p/ fornecedor</Button>
-                          <Button size="sm" variant="danger" onClick={() => { setResolverQuar({ sku: g.sku, descricao: g.descricao, motivo: 'Descarte' }); setResponsavel('') }}>Descartar</Button>
+                          <Button size="sm" variant="secondary" onClick={() => { setResolverQuar({ sku: g.sku, descricao: g.descricao, motivo: 'Devolução ao fornecedor' }) }}>Devolução p/ fornecedor</Button>
+                          <Button size="sm" variant="danger" onClick={() => { setResolverQuar({ sku: g.sku, descricao: g.descricao, motivo: 'Descarte' }) }}>Descartar</Button>
                         </div>
                       </td>
                     )}
@@ -855,7 +851,7 @@ export default function PlanoAcaoPage() {
             </Button>
           )}
         </div>
-        <ItemTable items={vermelhos} onBloqueio={(i) => { setSolicitarTarget(i); setResponsavel(''); setObs('') }} />
+        <ItemTable items={vermelhos} onBloqueio={(i) => { setSolicitarTarget(i); setObs('') }} />
       </div>
       )}
 
@@ -879,7 +875,7 @@ export default function PlanoAcaoPage() {
       )}
 
       {/* Modal de solicitação de bloqueio (Zona Crítica) — só notifica por e-mail */}
-      <Modal open={!!solicitarTarget} onClose={() => { setSolicitarTarget(null); setResponsavel(''); setObs('') }} title="Solicitar Bloqueio">
+      <Modal open={!!solicitarTarget} onClose={() => { setSolicitarTarget(null); setObs('') }} title="Solicitar Bloqueio">
         <p className="text-sm text-gray-600 mb-3">
           Solicitando bloqueio de <strong>{solicitarTarget?.sku}</strong> — {solicitarTarget?.descricao}
         </p>
@@ -890,10 +886,10 @@ export default function PlanoAcaoPage() {
           </p>
         </div>
         <div className="flex flex-col gap-1 mb-3">
-          <label className="text-xs font-semibold text-gray-600">Solicitante *</label>
-          <input type="text" value={responsavel} onChange={e => setResponsavel(e.target.value)}
-            placeholder="Seu nome"
-            className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
+          <label className="text-xs font-semibold text-gray-600">Solicitante</label>
+          <div className="border border-gray-200 rounded-lg px-3 py-2 text-sm bg-gray-50 text-gray-700 flex items-center gap-2">
+            <span className="w-1.5 h-1.5 rounded-full bg-green-500" /> {executor} <span className="text-[10px] text-gray-400">· sua conta</span>
+          </div>
         </div>
         <div className="flex flex-col gap-1 mb-6">
           <label className="text-xs font-semibold text-gray-400">Observação (opcional)</label>
@@ -902,8 +898,8 @@ export default function PlanoAcaoPage() {
             className="border border-gray-200 rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:border-gray-300" />
         </div>
         <div className="flex justify-end gap-3">
-          <Button variant="ghost" onClick={() => { setSolicitarTarget(null); setResponsavel(''); setObs('') }}>Cancelar</Button>
-          <Button variant="danger" onClick={handleSolicitar} disabled={!responsavel || enviando}>
+          <Button variant="ghost" onClick={() => { setSolicitarTarget(null); setObs('') }}>Cancelar</Button>
+          <Button variant="danger" onClick={handleSolicitar} disabled={enviando}>
             {enviando ? 'Enviando…' : 'Enviar Solicitação'}
           </Button>
         </div>
@@ -916,10 +912,10 @@ export default function PlanoAcaoPage() {
         </p>
         <p className="text-xs text-gray-400 mb-4">Ao confirmar, os usuários do Plano de Ação são notificados por e-mail.</p>
         <div className="flex flex-col gap-1 mb-3">
-          <label className="text-xs font-semibold text-gray-600">Responsável *</label>
-          <input type="text" value={responsavel} onChange={e => setResponsavel(e.target.value)}
-            placeholder="Nome do responsável"
-            className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
+          <label className="text-xs font-semibold text-gray-600">Responsável</label>
+          <div className="border border-gray-200 rounded-lg px-3 py-2 text-sm bg-gray-50 text-gray-700 flex items-center gap-2">
+            <span className="w-1.5 h-1.5 rounded-full bg-green-500" /> {executor} <span className="text-[10px] text-gray-400">· sua conta</span>
+          </div>
         </div>
         <div className="flex flex-col gap-1 mb-6">
           <label className="text-xs font-semibold text-gray-400">Observação (opcional)</label>
@@ -928,14 +924,14 @@ export default function PlanoAcaoPage() {
         </div>
         <div className="flex justify-end gap-3">
           <Button variant="ghost" onClick={() => setBloqueioTarget(null)}>Cancelar</Button>
-          <Button variant="danger" onClick={handleBloqueio} disabled={!responsavel || enviando}>
+          <Button variant="danger" onClick={handleBloqueio} disabled={enviando}>
             {enviando ? 'Processando…' : 'Confirmar Bloqueio'}
           </Button>
         </div>
       </Modal>
 
       {/* Modal de estorno de segregação */}
-      <Modal open={!!estornoTarget} onClose={() => { setEstornoTarget(null); setResponsavel('') }} title="Estornar Segregação">
+      <Modal open={!!estornoTarget} onClose={() => { setEstornoTarget(null) }} title="Estornar Segregação">
         <p className="text-sm text-gray-600 mb-3">
           Estornando <strong>{estornoTarget?.sku}</strong> — {estornoTarget?.descricao}
         </p>
@@ -946,10 +942,10 @@ export default function PlanoAcaoPage() {
           </p>
         </div>
         <div className="flex flex-col gap-1 mb-3">
-          <label className="text-xs font-semibold text-gray-600">Responsável *</label>
-          <input type="text" value={responsavel} onChange={e => setResponsavel(e.target.value)}
-            placeholder="Nome do responsável"
-            className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
+          <label className="text-xs font-semibold text-gray-600">Responsável</label>
+          <div className="border border-gray-200 rounded-lg px-3 py-2 text-sm bg-gray-50 text-gray-700 flex items-center gap-2">
+            <span className="w-1.5 h-1.5 rounded-full bg-green-500" /> {executor} <span className="text-[10px] text-gray-400">· sua conta</span>
+          </div>
         </div>
         <div className="flex flex-col gap-1 mb-6">
           <label className="text-xs font-semibold text-gray-400">Observação (opcional)</label>
@@ -957,15 +953,15 @@ export default function PlanoAcaoPage() {
             className="border border-gray-200 rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:border-gray-300" />
         </div>
         <div className="flex justify-end gap-3">
-          <Button variant="ghost" onClick={() => { setEstornoTarget(null); setResponsavel('') }}>Cancelar</Button>
-          <Button variant="primary" onClick={handleEstorno} disabled={!responsavel || enviando}>
+          <Button variant="ghost" onClick={() => { setEstornoTarget(null) }}>Cancelar</Button>
+          <Button variant="primary" onClick={handleEstorno} disabled={enviando}>
             {enviando ? 'Processando…' : 'Confirmar Estorno'}
           </Button>
         </div>
       </Modal>
 
       {/* Modal enviar para quarentena */}
-      <Modal open={!!quarentenaTarget} onClose={() => { setQuarentenaTarget(null); setResponsavel('') }} title="Enviar para Quarentena">
+      <Modal open={!!quarentenaTarget} onClose={() => { setQuarentenaTarget(null) }} title="Enviar para Quarentena">
         <p className="text-sm text-gray-600 mb-3">
           Enviando <strong>{quarentenaTarget?.sku}</strong> — {quarentenaTarget?.descricao}
         </p>
@@ -976,21 +972,21 @@ export default function PlanoAcaoPage() {
           </p>
         </div>
         <div className="flex flex-col gap-1 mb-6">
-          <label className="text-xs font-semibold text-gray-600">Responsável *</label>
-          <input type="text" value={responsavel} onChange={e => setResponsavel(e.target.value)}
-            placeholder="Nome do responsável"
-            className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
+          <label className="text-xs font-semibold text-gray-600">Responsável</label>
+          <div className="border border-gray-200 rounded-lg px-3 py-2 text-sm bg-gray-50 text-gray-700 flex items-center gap-2">
+            <span className="w-1.5 h-1.5 rounded-full bg-green-500" /> {executor} <span className="text-[10px] text-gray-400">· sua conta</span>
+          </div>
         </div>
         <div className="flex justify-end gap-3">
-          <Button variant="ghost" onClick={() => { setQuarentenaTarget(null); setResponsavel('') }}>Cancelar</Button>
-          <Button variant="primary" onClick={handleQuarentena} disabled={!responsavel || enviando}>
+          <Button variant="ghost" onClick={() => { setQuarentenaTarget(null) }}>Cancelar</Button>
+          <Button variant="primary" onClick={handleQuarentena} disabled={enviando}>
             {enviando ? 'Enviando…' : 'Enviar para Quarentena'}
           </Button>
         </div>
       </Modal>
 
       {/* Modal resolver quarentena (devolução/descarte) */}
-      <Modal open={!!resolverQuar} onClose={() => { setResolverQuar(null); setResponsavel('') }} title={resolverQuar?.motivo ?? 'Resolver Quarentena'}>
+      <Modal open={!!resolverQuar} onClose={() => { setResolverQuar(null) }} title={resolverQuar?.motivo ?? 'Resolver Quarentena'}>
         <p className="text-sm text-gray-600 mb-3">
           <strong>{resolverQuar?.motivo}</strong> de <strong>{resolverQuar?.sku}</strong> — {resolverQuar?.descricao}
         </p>
@@ -1004,14 +1000,14 @@ export default function PlanoAcaoPage() {
           </p>
         </div>
         <div className="flex flex-col gap-1 mb-6">
-          <label className="text-xs font-semibold text-gray-600">Responsável *</label>
-          <input type="text" value={responsavel} onChange={e => setResponsavel(e.target.value)}
-            placeholder="Nome do responsável"
-            className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
+          <label className="text-xs font-semibold text-gray-600">Responsável</label>
+          <div className="border border-gray-200 rounded-lg px-3 py-2 text-sm bg-gray-50 text-gray-700 flex items-center gap-2">
+            <span className="w-1.5 h-1.5 rounded-full bg-green-500" /> {executor} <span className="text-[10px] text-gray-400">· sua conta</span>
+          </div>
         </div>
         <div className="flex justify-end gap-3">
-          <Button variant="ghost" onClick={() => { setResolverQuar(null); setResponsavel('') }}>Cancelar</Button>
-          <Button variant="danger" onClick={handleResolverQuar} disabled={!responsavel || enviando}>
+          <Button variant="ghost" onClick={() => { setResolverQuar(null) }}>Cancelar</Button>
+          <Button variant="danger" onClick={handleResolverQuar} disabled={enviando}>
             {enviando ? 'Processando…' : `Confirmar ${resolverQuar?.motivo === 'Descarte' ? 'Descarte' : 'Devolução'}`}
           </Button>
         </div>

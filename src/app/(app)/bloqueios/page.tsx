@@ -13,12 +13,13 @@ import type { Baixa, Item } from '@/lib/types'
 export default function BloqueiosPage() {
   const { itens, loading, baixarItem } = useItens()
   const { toast } = useToast()
-  const { can } = usePerfílContext()
+  const { can, perfil } = usePerfílContext()
+  // Responsável da baixa = conta logada (não digitado)
+  const executor = perfil?.nome?.trim() || perfil?.email || 'sistema'
   const [tab, setTab] = useState<'bloqueados' | 'baixas'>('bloqueados')
   const [baixas, setBaixas] = useState<Baixa[]>([])
   const [baixaTarget, setBaixaTarget] = useState<{ sku: string; descricao: string; ids: string[]; qtd: number } | null>(null)
   const [nf, setNf] = useState('')
-  const [responsavel, setResponsavel] = useState('')
   const [baixando, setBaixando] = useState(false)
 
   const bloqueados = useMemo(() => itens.filter(i => i.status === 'bloqueado'), [itens])
@@ -51,23 +52,22 @@ export default function BloqueiosPage() {
   }
 
   const handleBaixa = async () => {
-    if (!baixaTarget || !nf || !responsavel) return
+    if (!baixaTarget || !nf) return
     setBaixando(true)
     const alvo = baixaTarget
     let erros = 0
     for (const id of alvo.ids) {
-      const { error } = await baixarItem(id, nf, responsavel)
+      const { error } = await baixarItem(id, nf, executor)
       if (error) erros++
     }
     if (erros === 0) {
-      await notificarBaixa({ sku: alvo.sku, descricao: alvo.descricao, quantidade: alvo.qtd }, responsavel, `NF: ${nf}`)
+      await notificarBaixa({ sku: alvo.sku, descricao: alvo.descricao, quantidade: alvo.qtd }, executor, `NF: ${nf}`)
     }
     setBaixando(false)
     if (erros > 0) toast(`Concluído com ${erros} erro(s)`, 'error')
     else toast(alvo.ids.length > 1 ? `${alvo.ids.length} baixas registradas` : 'Baixa registrada com sucesso')
     setBaixaTarget(null)
     setNf('')
-    setResponsavel('')
   }
 
   if (loading) return <div className="flex items-center justify-center h-64"><div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" /></div>
@@ -199,19 +199,15 @@ export default function BloqueiosPage() {
             />
           </div>
           <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold text-gray-600">Responsável *</label>
-            <input
-              type="text"
-              value={responsavel}
-              onChange={e => setResponsavel(e.target.value)}
-              placeholder="Nome do responsável"
-              className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
-            />
+            <label className="text-xs font-semibold text-gray-600">Responsável</label>
+            <div className="border border-gray-200 rounded-lg px-3 py-2 text-sm bg-gray-50 text-gray-700 flex items-center gap-2">
+              <span className="w-1.5 h-1.5 rounded-full bg-green-500" /> {executor} <span className="text-[10px] text-gray-400">· sua conta</span>
+            </div>
           </div>
         </div>
         <div className="flex justify-end gap-3 mt-6">
           <Button variant="ghost" onClick={() => setBaixaTarget(null)} disabled={baixando}>Cancelar</Button>
-          <Button variant="primary" onClick={handleBaixa} disabled={!nf || !responsavel || baixando}>
+          <Button variant="primary" onClick={handleBaixa} disabled={!nf || baixando}>
             {baixando ? 'Processando…' : baixaTarget && baixaTarget.ids.length > 1 ? `Confirmar Baixa (${baixaTarget.ids.length})` : 'Confirmar Baixa'}
           </Button>
         </div>
