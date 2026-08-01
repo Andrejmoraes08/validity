@@ -37,6 +37,15 @@ function extrairLado(endereco: string): LadoRua | null {
   return predio % 2 === 0 ? 'par' : 'impar'
 }
 
+// Normaliza texto para busca: sem acentos, minúsculo, espaços colapsados
+function normalizarBusca(s: string): string {
+  return (s ?? '')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .trim()
+}
+
 const novoItemVazio = {
   sku: '', descricao: '', lote: '', tipo: 'frac' as 'frac' | 'gran',
   endereco: '', quantidade: '', validadeTexto: '', validadeISO: '',
@@ -87,6 +96,11 @@ export default function InspecaoPage() {
   const [complSegregar, setComplSegregar] = useState(false)
   const [complQtdSegregar, setComplQtdSegregar] = useState('')
   const [savingNovo, setSavingNovo] = useState(false)
+
+  // Busca de produto por descrição/código na modal de novo endereço
+  const [buscaProduto, setBuscaProduto] = useState('')
+  const [mostrarBuscaResultados, setMostrarBuscaResultados] = useState(false)
+  const [entradaManualSku, setEntradaManualSku] = useState(false)
 
   // Filtros da tela inicial
   const [ruasSelecionadas, setRuasSelecionadas] = useState<string[]>([])
@@ -249,6 +263,47 @@ export default function InspecaoPage() {
     if (!sku) return null
     return itens.find(i => i.sku === sku) ?? null
   }, [itens, novoItem.sku])
+
+  // Catálogo de produtos (SKU único → descrição) para busca por nome
+  const catalogoProdutos = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const i of itens) {
+      if (!i.sku) continue
+      const atual = map.get(i.sku)
+      // Mantém a primeira descrição não vazia encontrada para o SKU
+      if (atual === undefined || (!atual && i.descricao)) map.set(i.sku, i.descricao ?? '')
+    }
+    return Array.from(map, ([sku, descricao]) => ({ sku, descricao }))
+  }, [itens])
+
+  // Resultados filtrados pela digitação (nome do produto ou código), até 30
+  const resultadosBusca = useMemo(() => {
+    const q = normalizarBusca(buscaProduto)
+    if (!q) return []
+    const termos = q.split(/\s+/).filter(Boolean)
+    const res = catalogoProdutos.filter(p => {
+      const alvo = normalizarBusca(`${p.sku} ${p.descricao}`)
+      return termos.every(t => alvo.includes(t))
+    })
+    // Ordena por descrição para leitura previsível
+    res.sort((a, b) => a.descricao.localeCompare(b.descricao, 'pt-BR'))
+    return res.slice(0, 30)
+  }, [buscaProduto, catalogoProdutos])
+
+  const selecionarProduto = (p: { sku: string; descricao: string }) => {
+    setNovoItem(prev => ({ ...prev, sku: p.sku, descricao: p.descricao }))
+    setBuscaProduto(`${p.sku} — ${p.descricao}`)
+    setMostrarBuscaResultados(false)
+    setEntradaManualSku(false)
+  }
+
+  // Reset completo do formulário de novo endereço (inclui estados da busca)
+  const resetNovoEndereco = () => {
+    setNovoItem(novoItemVazio)
+    setBuscaProduto('')
+    setMostrarBuscaResultados(false)
+    setEntradaManualSku(false)
+  }
 
   // Popup mínimo confirmado → segue para inspeção complementar
   const handleContinuarNovo = () => {
@@ -1001,7 +1056,7 @@ export default function InspecaoPage() {
           </div>
           <div className="flex flex-col gap-1.5">
             <button
-              onClick={() => setShowAddModal(true)}
+              onClick={() => { resetNovoEndereco(); setShowAddModal(true) }}
               className="flex items-center justify-center gap-1 text-xs font-semibold text-blue-600 border border-blue-200 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg transition-colors"
             >
               + Endereço
@@ -1439,11 +1494,11 @@ export default function InspecaoPage() {
       </Modal>
 
       {/* Modal — incluir novo endereço de inspeção (popup mínimo) */}
-      <Modal open={showAddModal} onClose={() => { setShowAddModal(false); setNovoItem(novoItemVazio) }} title="Incluir Endereço de Inspeção">
+      <Modal open={showAddModal} onClose={() => { setShowAddModal(false); resetNovoEndereco() }} title="Incluir Endereço de Inspeção">
         <div className="flex flex-col gap-4">
           <p className="text-xs text-gray-500">
-            Produto localizado fora do programado? Informe o endereço e o código — a próxima tela
-            segue para a inspeção complementar.
+            Produto localizado fora do programado? Informe o endereço e busque o produto pelo nome —
+            a próxima tela segue para a inspeção complementar.
           </p>
 
           <div className="flex flex-col gap-1">
@@ -1461,15 +1516,85 @@ export default function InspecaoPage() {
           </div>
 
           <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold text-gray-600">Código do produto (SKU) *</label>
-            <input type="text" value={novoItem.sku}
-              onChange={e => setNovoItem(p => ({ ...p, sku: e.target.value }))}
-              placeholder="Código SKU"
-              className="border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-blue-500" />
-            {novoItem.sku.trim() && (
-              produtoExistente
-                ? <p className="text-[11px] text-green-600 font-medium">✓ {produtoExistente.descricao}</p>
-                : <p className="text-[11px] text-amber-600">Produto sem cadastro — informe a descrição na próxima tela</p>
+            <label className="text-xs font-semibold text-gray-600">Produto *</label>
+
+            {/* Produto selecionado */}
+            {novoItem.sku && !entradaManualSku ? (
+              <div className="flex items-center justify-between gap-2 border border-green-200 bg-green-50 rounded-lg px-3 py-2">
+                <div className="min-w-0">
+                  <div className="font-mono text-sm font-bold text-gray-800">{novoItem.sku}</div>
+                  <div className="text-[11px] text-gray-600 truncate">
+                    {novoItem.descricao || produtoExistente?.descricao || 'Descrição na próxima tela'}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => { setNovoItem(p => ({ ...p, sku: '', descricao: '' })); setBuscaProduto(''); setMostrarBuscaResultados(false) }}
+                  className="text-[11px] font-semibold text-blue-600 hover:text-blue-800 flex-shrink-0"
+                >
+                  Trocar
+                </button>
+              </div>
+            ) : entradaManualSku ? (
+              /* Entrada manual do código (produto novo / não cadastrado) */
+              <div className="flex flex-col gap-1">
+                <input type="text" value={novoItem.sku}
+                  onChange={e => setNovoItem(p => ({ ...p, sku: e.target.value }))}
+                  placeholder="Código SKU do produto novo"
+                  autoFocus
+                  className="border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-blue-500" />
+                <button
+                  type="button"
+                  onClick={() => { setEntradaManualSku(false); setNovoItem(p => ({ ...p, sku: '' })) }}
+                  className="self-start text-[11px] font-semibold text-blue-600 hover:text-blue-800"
+                >
+                  ← Voltar à busca por nome
+                </button>
+                <p className="text-[11px] text-amber-600">Produto sem cadastro — a descrição é informada na próxima tela</p>
+              </div>
+            ) : (
+              /* Busca por nome ou código */
+              <div className="relative">
+                <input
+                  type="text"
+                  value={buscaProduto}
+                  onChange={e => { setBuscaProduto(e.target.value); setMostrarBuscaResultados(true) }}
+                  onFocus={() => setMostrarBuscaResultados(true)}
+                  placeholder="Digite o nome ou o código do produto"
+                  className="border border-gray-200 rounded-lg px-3 py-2 text-sm w-full focus:outline-none focus:border-blue-500"
+                />
+                {mostrarBuscaResultados && buscaProduto.trim() && (
+                  <div className="absolute z-20 mt-1 w-full max-h-60 overflow-auto bg-white border border-gray-200 rounded-lg shadow-lg">
+                    {resultadosBusca.length > 0 ? (
+                      resultadosBusca.map(p => (
+                        <button
+                          key={p.sku}
+                          type="button"
+                          onClick={() => selecionarProduto(p)}
+                          className="w-full text-left px-3 py-2 hover:bg-blue-50 border-b border-gray-50 last:border-0"
+                        >
+                          <span className="font-mono text-xs font-bold text-blue-700">{p.sku}</span>
+                          <span className="text-xs text-gray-700 ml-2">{p.descricao}</span>
+                        </button>
+                      ))
+                    ) : (
+                      <div className="px-3 py-3 text-xs text-gray-500">
+                        Nenhum produto encontrado.{' '}
+                        <button
+                          type="button"
+                          onClick={() => { setEntradaManualSku(true); setMostrarBuscaResultados(false) }}
+                          className="text-blue-600 font-semibold hover:text-blue-800"
+                        >
+                          Informar código manualmente
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+                <p className="text-[11px] text-gray-400 mt-1">
+                  Busque pelo nome — com mais de mil itens ativos não é preciso decorar os códigos.
+                </p>
+              </div>
             )}
           </div>
 
@@ -1490,7 +1615,7 @@ export default function InspecaoPage() {
           </div>
 
           <div className="flex justify-end gap-3 pt-2">
-            <Button variant="ghost" onClick={() => { setShowAddModal(false); setNovoItem(novoItemVazio) }}>Cancelar</Button>
+            <Button variant="ghost" onClick={() => { setShowAddModal(false); resetNovoEndereco() }}>Cancelar</Button>
             <Button
               variant="primary"
               onClick={handleContinuarNovo}
