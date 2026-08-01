@@ -384,6 +384,13 @@ export default function InspecaoPage() {
     toast(segregar
       ? `Endereço ${endereco} cadastrado e segregado — enviado ao Plano de Ação`
       : `Endereço ${endereco} inspecionado e cadastrado`)
+    // Notifica o grupo do Plano de Ação por e-mail quando o item foi segregado
+    if (segregar) {
+      await notificarSegregacao({
+        sku, descricao, endereco, validade: validadeISO,
+        quantidade: complQtdSegregar ? Number(complQtdSegregar) : (Number(quantidade) || 0),
+      }, complObs)
+    }
     cancelarComplemento()
     setSavingNovo(false)
   }
@@ -443,6 +450,26 @@ export default function InspecaoPage() {
   // Quantidade a gravar: só envia se o inspetor alterou o saldo cadastrado
   const qtdParaSalvar = () => (qtdAlterada ? Number(qtdInspecao) : undefined)
 
+  // Notifica por e-mail o grupo com acesso ao Plano de Ação quando há segregação.
+  // Best-effort: a segregação já está gravada; falha de e-mail não bloqueia a inspeção.
+  const notificarSegregacao = async (
+    dados: { sku: string; descricao: string; endereco: string; validade: string; quantidade: number | string },
+    observacao: string,
+  ) => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const res = await fetch('/api/plano-acao/notificar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token ?? ''}` },
+        body: JSON.stringify({ acao: 'segregacao', responsavel: state.responsavel, obs: observacao, item: dados }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (res.ok && json.enviados) toast(`Plano de Ação notificado por e-mail (${json.enviados})`, 'info')
+    } catch {
+      /* e-mail é best-effort — a segregação já foi registrada */
+    }
+  }
+
   const handleConfirmarOk = async () => {
     setProcessing(true)
     await confirmar(true, validadeEfetiva, obs, foto, undefined, qtdParaSalvar())
@@ -451,9 +478,19 @@ export default function InspecaoPage() {
   }
 
   const handleConfirmarSegregacao = async () => {
-    if (!qtdSegregar) return
+    if (!qtdSegregar || !itemAtual || !entradaAtual) return
     setProcessing(true)
+    // Captura os dados do item antes de confirmar (confirmar avança a fila e troca o item atual)
+    const dadosSegregacao = {
+      sku: itemAtual.sku,
+      descricao: itemAtual.descricao,
+      endereco: entradaAtual.endereco,
+      validade: validadeEfetiva,
+      quantidade: Number(qtdSegregar),
+    }
+    const obsSegregacao = obs
     await confirmar(false, validadeEfetiva, obs, foto, Number(qtdSegregar), qtdParaSalvar())
+    await notificarSegregacao(dadosSegregacao, obsSegregacao)
     limparEstado()
     setProcessing(false)
   }
