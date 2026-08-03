@@ -23,6 +23,7 @@ export const TODAS_TABS = [
   { key: 'estoque',     label: 'Estoque' },
   { key: 'plano-acao',  label: 'Plano de Ação' },
   { key: 'inspecao',    label: 'Inspeção' },
+  { key: 'paletes',     label: 'Paletes' },
   { key: 'wms',         label: 'Importação' },
   { key: 'bloqueios',   label: 'Bloqueios e Perdas' },
   { key: 'config',      label: 'Configurações' },
@@ -128,7 +129,8 @@ export function usePerfil(user: User | null) {
   }, [user, fetchOrCreate])
 
   const isAdmin = perfil?.role === 'admin'
-  const tabsPermitidas = perfil?.tabs_permitidas ?? []
+  // Admin sempre enxerga todas as abas (inclusive novas), sem depender do que está salvo no banco
+  const tabsPermitidas = isAdmin ? TODAS_TABS.map(t => t.key) : (perfil?.tabs_permitidas ?? [])
   const permissoes = perfil?.permissoes ?? []
   const primeiraTab = tabsPermitidas[0] ?? 'dashboard'
   // Admin pode tudo; operador precisa da permissão explícita
