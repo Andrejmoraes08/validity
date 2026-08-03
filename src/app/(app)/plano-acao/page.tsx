@@ -84,12 +84,12 @@ export default function PlanoAcaoPage() {
   }, [quarentenaItens])
 
   // Resumo consolidado: agrupa por SKU + validade, soma quantidades de todos os endereços.
-  // Apenas o que precisa ser definido no plano de ação: segregados + vencido/crítico (<30d).
-  // A zona de atenção (30-90d) é só monitoramento e fica de fora. Respeita as permissões.
+  // Consolida tudo que exige atenção no plano: segregados + vencido/crítico (<30d) + atenção (30-90d).
+  // Respeita as permissões.
   const consolidado = useMemo(() => {
     const fonte: Item[] = []
     if (can('plano.ver_segregados')) fonte.push(...segregados)
-    if (can('plano.ver_zonas')) fonte.push(...vermelhos)
+    if (can('plano.ver_zonas')) fonte.push(...vermelhos, ...amarelos)
 
     const mapa = new Map<string, { sku: string; descricao: string; validade: string; quantidade: number; enderecos: number; segregados: number }>()
     for (const i of fonte) {
@@ -101,7 +101,7 @@ export default function PlanoAcaoPage() {
       mapa.set(key, g)
     }
     return Array.from(mapa.values()).sort((a, b) => diasParaVencer(a.validade) - diasParaVencer(b.validade))
-  }, [segregados, vermelhos, can])
+  }, [segregados, vermelhos, amarelos, can])
 
   const totalConsolidado = useMemo(() => consolidado.reduce((s, g) => s + g.quantidade, 0), [consolidado])
 
@@ -235,7 +235,7 @@ export default function PlanoAcaoPage() {
     }
 
     // 1. Resumo consolidado
-    secao('Resumo Consolidado (vencido + crítico + segregados)', '#1a1d24',
+    secao('Resumo Consolidado (vencido + crítico + atenção + segregados)', '#1a1d24',
       ['SKU', 'Descrição', 'Validade', 'Dias', 'Qtde Total'],
       consolidado.map(gp => [gp.sku, gp.descricao, fmtDate(gp.validade), diasTexto(gp.validade), gp.quantidade]),
       2, consolidado)
