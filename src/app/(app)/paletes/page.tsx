@@ -322,7 +322,7 @@ export default function PaletesPage() {
                         title="Selecionar todos os visíveis"
                       />
                     </th>
-                    {['SKU', 'Descrição', 'Lote', 'End. Picking', 'End. Pulmão', 'Qtd', 'Validade', ''].map((h, i) => (
+                    {['SKU', 'Descrição', 'Lote', 'End. Pulmão', 'Qtd', 'Validade', ''].map((h, i) => (
                       <th key={i} className="px-4 py-3 text-left text-gray-500 font-semibold text-[11px] uppercase tracking-wide whitespace-nowrap">{h}</th>
                     ))}
                   </tr>
@@ -348,7 +348,6 @@ export default function PaletesPage() {
                         <td className="px-4 py-3 font-mono font-bold text-gray-800">{item.sku}</td>
                         <td className="px-4 py-3 text-gray-700 max-w-[220px] truncate">{item.descricao}</td>
                         <td className="px-4 py-3 font-mono text-gray-500">{item.lote}</td>
-                        <td className="px-4 py-3 font-mono text-gray-600">{item.endereco_frac || '—'}</td>
                         <td className="px-4 py-3 font-mono text-gray-600">{item.endereco_gran || '—'}</td>
                         <td className="px-4 py-3 font-mono font-bold text-gray-800">{item.quantidade}</td>
                         <td className="px-4 py-3"><ZoneCell validade={item.validade} /></td>
