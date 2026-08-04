@@ -143,44 +143,59 @@ export default function PaletesPage() {
       ?? disponiveis[0]
   }, [previewId, selecionados, disponiveis, itens])
 
-  const gerarPDF = async () => {
-    const alvo = disponiveis.filter(i => selecionados.has(i.id))
+  // Monta o documento (uma etiqueta por página) a partir dos itens
+  const construirDoc = async (alvo: Item[]) => {
+    const { jsPDF } = await import('jspdf')
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
+    const geradoEm = fmtDateTime(new Date().toISOString())
+    alvo.forEach((it, i) => {
+      if (i > 0) doc.addPage()
+      desenharEtiqueta(doc, it, i + 1, alvo.length, responsavel, geradoEm)
+    })
+    return doc
+  }
+
+  // Envia o PDF para o diálogo de impressão sem baixar arquivo (via iframe oculto)
+  const imprimirDoc = (doc: Doc) => {
+    doc.autoPrint()
+    const url = String(doc.output('bloburl'))
+    const iframe = document.createElement('iframe')
+    iframe.style.position = 'fixed'
+    iframe.style.right = '0'; iframe.style.bottom = '0'
+    iframe.style.width = '0'; iframe.style.height = '0'; iframe.style.border = '0'
+    iframe.style.visibility = 'hidden'
+    iframe.src = url
+    iframe.onload = () => {
+      try { iframe.contentWindow?.focus(); iframe.contentWindow?.print() } catch (e) { console.error('print', e) }
+    }
+    document.body.appendChild(iframe)
+    // Remove o iframe depois que o diálogo já foi aberto
+    setTimeout(() => { iframe.remove(); URL.revokeObjectURL(url) }, 60000)
+  }
+
+  // Ação única para imprimir ou baixar, seja em lote (seleção) ou item avulso
+  const gerarEtiquetas = async (modo: 'imprimir' | 'pdf', alvo: Item[], nomeArquivo: string) => {
     if (alvo.length === 0) { toast('Selecione ao menos um item para gerar etiquetas', 'info'); return }
     setGerando(true)
     try {
-      const { jsPDF } = await import('jspdf')
-      const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
-      const geradoEm = fmtDateTime(new Date().toISOString())
-      alvo.forEach((it, i) => {
-        if (i > 0) doc.addPage()
-        desenharEtiqueta(doc, it, i + 1, alvo.length, responsavel, geradoEm)
-      })
-      doc.save(`paletes-${new Date().toISOString().split('T')[0]}.pdf`)
-      toast(`${alvo.length} etiqueta(s) gerada(s)`)
+      const doc = await construirDoc(alvo)
+      if (modo === 'pdf') {
+        doc.save(nomeArquivo)
+        toast(`${alvo.length} etiqueta(s) em PDF`)
+      } else {
+        imprimirDoc(doc)
+        toast(`Enviado para impressão (${alvo.length})`)
+      }
     } catch (e) {
-      console.error('PDF generation failed', e)
+      console.error('etiquetas', e)
       toast('Erro ao gerar as etiquetas', 'error')
     } finally {
       setGerando(false)
     }
   }
 
-  const gerarUma = async (it: Item) => {
-    setGerando(true)
-    try {
-      const { jsPDF } = await import('jspdf')
-      const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
-      desenharEtiqueta(doc, it, 1, 1, responsavel, fmtDateTime(new Date().toISOString()))
-      doc.save(`palete-${it.sku}-${new Date().toISOString().split('T')[0]}.pdf`)
-      toast('Etiqueta gerada')
-    } catch (e) {
-      console.error('PDF generation failed', e)
-      toast('Erro ao gerar a etiqueta', 'error')
-    } finally {
-      setGerando(false)
-    }
-  }
-
+  const hoje = () => new Date().toISOString().split('T')[0]
+  const alvoSelecionado = disponiveis.filter(i => selecionados.has(i.id))
   const totalSelecionados = selecionados.size
 
   return (
@@ -196,8 +211,11 @@ export default function PaletesPage() {
           {totalSelecionados > 0 && (
             <Button variant="ghost" size="sm" onClick={limpar}>Limpar seleção</Button>
           )}
-          <Button variant="primary" onClick={gerarPDF} disabled={gerando || totalSelecionados === 0}>
-            {gerando ? 'Gerando…' : `🖨️ Gerar etiquetas (${totalSelecionados})`}
+          <Button variant="secondary" onClick={() => gerarEtiquetas('pdf', alvoSelecionado, `paletes-${hoje()}.pdf`)} disabled={gerando || totalSelecionados === 0}>
+            📄 Baixar PDF
+          </Button>
+          <Button variant="primary" onClick={() => gerarEtiquetas('imprimir', alvoSelecionado, '')} disabled={gerando || totalSelecionados === 0}>
+            {gerando ? 'Gerando…' : `🖨️ Imprimir (${totalSelecionados})`}
           </Button>
         </div>
       </div>
@@ -335,12 +353,21 @@ export default function PaletesPage() {
                         <td className="px-4 py-3 font-mono font-bold text-gray-800">{item.quantidade}</td>
                         <td className="px-4 py-3"><ZoneCell validade={item.validade} /></td>
                         <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
-                          <button
-                            onClick={() => gerarUma(item)}
-                            disabled={gerando}
-                            className="text-blue-500 hover:text-blue-700 font-semibold whitespace-nowrap disabled:opacity-40"
-                            title="Gerar etiqueta apenas deste item"
-                          >Imprimir</button>
+                          <div className="flex items-center gap-2 whitespace-nowrap">
+                            <button
+                              onClick={() => gerarEtiquetas('imprimir', [item], '')}
+                              disabled={gerando}
+                              className="text-blue-500 hover:text-blue-700 font-semibold disabled:opacity-40"
+                              title="Imprimir etiqueta deste item"
+                            >Imprimir</button>
+                            <span className="text-gray-200">|</span>
+                            <button
+                              onClick={() => gerarEtiquetas('pdf', [item], `palete-${item.sku}-${hoje()}.pdf`)}
+                              disabled={gerando}
+                              className="text-gray-500 hover:text-gray-700 font-semibold disabled:opacity-40"
+                              title="Baixar etiqueta deste item em PDF"
+                            >PDF</button>
+                          </div>
                         </td>
                       </tr>
                     )
