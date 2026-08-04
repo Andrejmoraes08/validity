@@ -717,7 +717,7 @@ export default function PlanoAcaoPage() {
                   {consolidado.map((g, i) => (
                     <tr key={`${g.sku}-${g.validade}-${i}`} className="border-b border-gray-50 hover:bg-gray-50">
                       <td className="px-4 py-3 font-mono font-bold text-gray-800">{g.sku}</td>
-                      <td className="px-4 py-3 text-gray-700 max-w-[260px] truncate">{g.descricao}</td>
+                      <td className="px-4 py-3 text-gray-700 min-w-[280px] whitespace-normal break-words">{g.descricao}</td>
                       <td className="px-4 py-3"><ZoneCell validade={g.validade} /></td>
                       <td className="px-4 py-3 font-mono font-extrabold text-gray-900">{g.quantidade}</td>
                     </tr>
@@ -815,7 +815,7 @@ export default function PlanoAcaoPage() {
                 {quarentenaConsolidada.map(g => (
                   <tr key={g.sku} className="border-b border-gray-50 hover:bg-gray-50">
                     <td className="px-4 py-3 font-mono font-bold text-gray-800">{g.sku}</td>
-                    <td className="px-4 py-3 text-gray-700 max-w-[260px] truncate">{g.descricao}</td>
+                    <td className="px-4 py-3 text-gray-700 min-w-[280px] whitespace-normal break-words">{g.descricao}</td>
                     <td className="px-4 py-3 font-mono font-extrabold text-gray-900">{g.quantidade}</td>
                     {can('plano.quarentena_resolver') && (
                       <td className="px-4 py-3">
