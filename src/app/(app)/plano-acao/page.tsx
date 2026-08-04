@@ -617,20 +617,19 @@ export default function PlanoAcaoPage() {
         <table className="w-full text-xs">
           <thead className="bg-gray-50 border-b border-gray-100">
             <tr>
-              {['SKU', 'Descrição', 'Lote', 'Endereço', 'Qtd', 'Validade',
+              {['SKU', 'Descrição', 'Endereço', 'Qtd', 'Validade',
                 ...(mostrarInspecao ? ['Últ. Inspeção'] : []),
                 ...(onBloqueio ? ['Ação'] : [])].map(h => (
-                <th key={h} className="px-4 py-3 text-left text-gray-500 font-semibold text-[11px] uppercase tracking-wide whitespace-nowrap">{h}</th>
+                <th key={h} className={`px-4 py-3 text-left text-gray-500 font-semibold text-[11px] uppercase tracking-wide ${h === 'Descrição' ? 'min-w-[280px]' : 'whitespace-nowrap'}`}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {items.map(item => (
               <tr key={item.id} className="border-b border-gray-50 hover:bg-gray-50">
-                <td className="px-4 py-3 font-mono font-bold text-gray-800">{item.sku}</td>
-                <td className="px-4 py-3 text-gray-700 max-w-[180px] truncate">{item.descricao}</td>
-                <td className="px-4 py-3 font-mono text-gray-500">{item.lote}</td>
-                <td className="px-4 py-3 font-mono text-gray-600">{item.endereco_frac}</td>
+                <td className="px-4 py-3 font-mono font-bold text-gray-800 whitespace-nowrap">{item.sku}</td>
+                <td className="px-4 py-3 text-gray-700 min-w-[280px] whitespace-normal break-words">{item.descricao}</td>
+                <td className="px-4 py-3 font-mono text-gray-600 whitespace-nowrap">{item.endereco_frac}</td>
                 <td className="px-4 py-3">
                   {item.quantidade === 0
                     ? <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold bg-gray-100 text-gray-400 border border-gray-200">⊘ Saldo 0</span>
