@@ -82,10 +82,10 @@ export default function PaletesPage() {
 
       if (search) {
         const q = search.toLowerCase()
+        // Picking não gera etiqueta de palete → busca só no endereço de pulmão
         if (!i.sku.toLowerCase().includes(q) &&
             !i.descricao.toLowerCase().includes(q) &&
             !i.lote.toLowerCase().includes(q) &&
-            !(i.endereco_frac ?? '').toLowerCase().includes(q) &&
             !(i.endereco_gran ?? '').toLowerCase().includes(q)) return false
       }
 
@@ -228,7 +228,7 @@ export default function PaletesPage() {
             <div className="flex flex-wrap gap-3 items-center">
               <input
                 type="text"
-                placeholder="Buscar código (SKU), descrição, lote, endereço…"
+                placeholder="Buscar código (SKU), descrição, lote, endereço de pulmão…"
                 value={search}
                 onChange={e => setSearch(e.target.value)}
                 className="border border-gray-200 rounded-lg px-3 py-2 text-sm flex-1 min-w-[220px] focus:outline-none focus:border-blue-500"
