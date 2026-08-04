@@ -54,8 +54,12 @@ export default function PaletesPage() {
   const [previewId, setPreviewId] = useState<string | null>(null)
   const [gerando, setGerando] = useState(false)
 
-  // Base: itens ativos com saldo (também alimenta as opções dos seletores)
-  const comSaldo = useMemo(() => itens.filter(i => i.status === 'ativo' && i.quantidade > 0), [itens])
+  // Base: itens ativos, com saldo E com endereço de PULMÃO (picking não gera etiqueta de palete).
+  // Também alimenta as opções dos seletores de rua/nível.
+  const comSaldo = useMemo(
+    () => itens.filter(i => i.status === 'ativo' && i.quantidade > 0 && !!(i.endereco_gran && i.endereco_gran.trim())),
+    [itens],
+  )
 
   // Valores distintos de Rua e Nível no endereço de PULMÃO (para os seletores)
   const ruasPulmao = useMemo(() => {
