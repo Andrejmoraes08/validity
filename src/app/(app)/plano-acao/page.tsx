@@ -758,22 +758,21 @@ export default function PlanoAcaoPage() {
             <table className="w-full text-xs">
               <thead className="bg-gray-50 border-b border-gray-100">
                 <tr>
-                  {['SKU', 'Descrição', 'Lote', 'Endereço', 'Qtd', 'Validade', 'Segregado por', 'Em',
+                  {['SKU', 'Descrição', 'Endereço', 'Qtd', 'Validade', 'Segregado por', 'Em',
                     ...((can('plano.bloquear') || can('plano.quarentena') || can('plano.estornar')) ? ['Ação'] : [])].map(h => (
-                    <th key={h} className="px-4 py-3 text-left text-gray-500 font-semibold text-[11px] uppercase tracking-wide">{h}</th>
+                    <th key={h} className={`px-4 py-3 text-left text-gray-500 font-semibold text-[11px] uppercase tracking-wide ${h === 'Descrição' ? 'min-w-[280px]' : h === 'Segregado por' ? 'w-[80px]' : 'whitespace-nowrap'}`}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {segregados.map(item => (
                   <tr key={item.id} className="border-b border-gray-50 hover:bg-gray-50">
-                    <td className="px-4 py-3 font-mono font-bold text-gray-800">{item.sku}</td>
-                    <td className="px-4 py-3 text-gray-700 max-w-[160px] truncate">{item.descricao}</td>
-                    <td className="px-4 py-3 font-mono text-gray-500">{item.lote}</td>
-                    <td className="px-4 py-3 font-mono text-gray-600">{item.endereco_frac || item.endereco_gran}</td>
+                    <td className="px-4 py-3 font-mono font-bold text-gray-800 whitespace-nowrap">{item.sku}</td>
+                    <td className="px-4 py-3 text-gray-700 min-w-[280px] whitespace-normal break-words">{item.descricao}</td>
+                    <td className="px-4 py-3 font-mono text-gray-600 whitespace-nowrap">{item.endereco_frac || item.endereco_gran}</td>
                     <td className="px-4 py-3 font-mono font-bold">{item.quantidade}</td>
                     <td className="px-4 py-3"><ZoneCell validade={item.validade} /></td>
-                    <td className="px-4 py-3 text-gray-500">{item.segregado_por || '—'}</td>
+                    <td className="px-4 py-3 text-gray-500 w-[80px] max-w-[80px] truncate" title={item.segregado_por || ''}>{item.segregado_por || '—'}</td>
                     <td className="px-4 py-3 text-gray-500">{item.segregado_em ? fmtDateTime(item.segregado_em) : '—'}</td>
                     {(can('plano.bloquear') || can('plano.quarentena') || can('plano.estornar')) && (
                       <td className="px-4 py-3">
