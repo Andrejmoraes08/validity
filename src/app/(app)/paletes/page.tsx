@@ -212,10 +212,10 @@ export default function PaletesPage() {
             <Button variant="ghost" size="sm" onClick={limpar}>Limpar seleção</Button>
           )}
           <Button variant="secondary" onClick={() => gerarEtiquetas('pdf', alvoSelecionado, `paletes-${hoje()}.pdf`)} disabled={gerando || totalSelecionados === 0}>
-            📄 Baixar PDF
+            Baixar PDF
           </Button>
           <Button variant="primary" onClick={() => gerarEtiquetas('imprimir', alvoSelecionado, '')} disabled={gerando || totalSelecionados === 0}>
-            {gerando ? 'Gerando…' : `🖨️ Imprimir (${totalSelecionados})`}
+            {gerando ? 'Gerando…' : `Imprimir (${totalSelecionados})`}
           </Button>
         </div>
       </div>
