@@ -20,6 +20,13 @@ interface PaleteData {
   validade: string
 }
 
+// Quebra o endereço "Rua - Prédio - Nível - Apto" em partes (tolerante a variações)
+function partesEndereco(e: string): { rua: string; predio: string; nivel: string; apto: string } | null {
+  if (!e || !e.trim()) return null
+  const p = e.split('-').map(s => s.trim())
+  return { rua: p[0] ?? '', predio: p[1] ?? '', nivel: p[2] ?? '', apto: p[3] ?? '' }
+}
+
 // Visual da validade (cor da zona + rótulos), tratando "sem validade" com tom neutro
 function zonaVisual(validade: string) {
   if (semValidade(validade)) {
@@ -39,16 +46,40 @@ export default function PaletesPage() {
 
   const [search, setSearch] = useState('')
   const [zoneFilter, setZoneFilter] = useState('')
+  const [filtroRua, setFiltroRua] = useState('')
+  const [predioDe, setPredioDe] = useState('')
+  const [predioAte, setPredioAte] = useState('')
+  const [filtroNivel, setFiltroNivel] = useState('')
   const [selecionados, setSelecionados] = useState<Set<string>>(new Set())
   const [previewId, setPreviewId] = useState<string | null>(null)
   const [gerando, setGerando] = useState(false)
 
-  // Somente itens com saldo em estoque ativo podem gerar etiqueta de palete
+  // Base: itens ativos com saldo (também alimenta as opções dos seletores)
+  const comSaldo = useMemo(() => itens.filter(i => i.status === 'ativo' && i.quantidade > 0), [itens])
+
+  // Valores distintos de Rua e Nível no endereço de PULMÃO (para os seletores)
+  const ruasPulmao = useMemo(() => {
+    const s = new Set<string>()
+    for (const i of comSaldo) { const p = partesEndereco(i.endereco_gran); if (p?.rua) s.add(p.rua) }
+    return Array.from(s).sort((a, b) => (Number(a) - Number(b)) || a.localeCompare(b))
+  }, [comSaldo])
+  const niveisPulmao = useMemo(() => {
+    const s = new Set<string>()
+    for (const i of comSaldo) { const p = partesEndereco(i.endereco_gran); if (p?.nivel) s.add(p.nivel) }
+    return Array.from(s).sort((a, b) => (Number(a) - Number(b)) || a.localeCompare(b))
+  }, [comSaldo])
+
+  const temFiltroPulmao = !!(filtroRua || filtroNivel || predioDe.trim() || predioAte.trim())
+  const temAlgumFiltro = !!(search || zoneFilter || temFiltroPulmao)
+
   const disponiveis = useMemo(() => {
-    const lista = itens.filter(i => i.status === 'ativo' && i.quantidade > 0)
-    const filtrada = lista.filter(i => {
-      if (zoneFilter && !semValidade(i.validade) && getZone(i.validade).name !== zoneFilter) return false
-      if (zoneFilter === 'sem' && !semValidade(i.validade)) return false
+    const de = predioDe.trim() ? Number(predioDe) : null
+    const ate = predioAte.trim() ? Number(predioAte) : null
+    const filtrada = comSaldo.filter(i => {
+      // Zona (inclui tratamento de "sem validade")
+      if (zoneFilter === 'sem') { if (!semValidade(i.validade)) return false }
+      else if (zoneFilter && (semValidade(i.validade) || getZone(i.validade).name !== zoneFilter)) return false
+
       if (search) {
         const q = search.toLowerCase()
         if (!i.sku.toLowerCase().includes(q) &&
@@ -57,11 +88,29 @@ export default function PaletesPage() {
             !(i.endereco_frac ?? '').toLowerCase().includes(q) &&
             !(i.endereco_gran ?? '').toLowerCase().includes(q)) return false
       }
+
+      // Filtros de endereço de pulmão: Rua (exata), Nível (exato), Prédio (intervalo de/até)
+      if (temFiltroPulmao) {
+        const p = partesEndereco(i.endereco_gran)
+        if (!p) return false
+        if (filtroRua && p.rua !== filtroRua) return false
+        if (filtroNivel && p.nivel !== filtroNivel) return false
+        if (de !== null || ate !== null) {
+          const pv = Number(p.predio)
+          if (p.predio === '' || !Number.isFinite(pv)) return false
+          if (de !== null && pv < de) return false
+          if (ate !== null && pv > ate) return false
+        }
+      }
       return true
     })
     // Mais crítico (menor validade) primeiro
-    return filtrada.sort((a, b) => diasParaVencer(a.validade) - diasParaVencer(b.validade))
-  }, [itens, zoneFilter, search])
+    return [...filtrada].sort((a, b) => diasParaVencer(a.validade) - diasParaVencer(b.validade))
+  }, [comSaldo, zoneFilter, search, filtroRua, filtroNivel, predioDe, predioAte, temFiltroPulmao])
+
+  const limparFiltros = () => {
+    setSearch(''); setZoneFilter(''); setFiltroRua(''); setPredioDe(''); setPredioAte(''); setFiltroNivel('')
+  }
 
   const idsVisiveis = useMemo(() => disponiveis.map(i => i.id), [disponiveis])
   const todosSelecionados = idsVisiveis.length > 0 && idsVisiveis.every(id => selecionados.has(id))
@@ -156,30 +205,83 @@ export default function PaletesPage() {
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_minmax(340px,420px)] gap-4 items-start">
         {/* Coluna esquerda: filtros + tabela de seleção */}
         <div className="flex flex-col gap-4 min-w-0">
-          <div className="bg-white rounded-xl border border-gray-100 p-4 flex flex-wrap gap-3 items-center">
-            <input
-              type="text"
-              placeholder="Buscar SKU, descrição, lote, endereço…"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              className="border border-gray-200 rounded-lg px-3 py-2 text-sm flex-1 min-w-[200px] focus:outline-none focus:border-blue-500"
-            />
-            <select
-              value={zoneFilter}
-              onChange={e => setZoneFilter(e.target.value)}
-              className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
-            >
-              <option value="">Todas as zonas</option>
-              <option value="vencido">Vencido</option>
-              <option value="vermelho">Crítico (&lt;30d)</option>
-              <option value="amarelo">Atenção (30-90d)</option>
-              <option value="verde">Seguro (90-180d)</option>
-              <option value="azul">OK (&gt;180d)</option>
-              <option value="sem">Sem validade</option>
-            </select>
-            {(search || zoneFilter) && (
-              <Button variant="ghost" size="sm" onClick={() => { setSearch(''); setZoneFilter('') }}>Limpar filtros</Button>
-            )}
+          <div className="bg-white rounded-xl border border-gray-100 p-4 flex flex-col gap-3">
+            {/* Linha 1 — busca por código + zona */}
+            <div className="flex flex-wrap gap-3 items-center">
+              <input
+                type="text"
+                placeholder="Buscar código (SKU), descrição, lote, endereço…"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                className="border border-gray-200 rounded-lg px-3 py-2 text-sm flex-1 min-w-[220px] focus:outline-none focus:border-blue-500"
+              />
+              <select
+                value={zoneFilter}
+                onChange={e => setZoneFilter(e.target.value)}
+                className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
+              >
+                <option value="">Todas as zonas</option>
+                <option value="vencido">Vencido</option>
+                <option value="vermelho">Crítico (&lt;30d)</option>
+                <option value="amarelo">Atenção (30-90d)</option>
+                <option value="verde">Seguro (90-180d)</option>
+                <option value="azul">OK (&gt;180d)</option>
+                <option value="sem">Sem validade</option>
+              </select>
+            </div>
+
+            {/* Linha 2 — endereço de pulmão: Rua, Prédio (de/até), Nível */}
+            <div className="flex flex-wrap gap-3 items-end border-t border-gray-100 pt-3">
+              <div className="flex flex-col gap-1">
+                <label className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Rua</label>
+                <select
+                  value={filtroRua}
+                  onChange={e => setFiltroRua(e.target.value)}
+                  className="border border-gray-200 rounded-lg px-3 py-2 text-sm min-w-[110px] focus:outline-none focus:border-blue-500"
+                >
+                  <option value="">Todas</option>
+                  {ruasPulmao.map(r => <option key={r} value={r}>{r}</option>)}
+                </select>
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Prédio (de / até)</label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number" inputMode="numeric" min={0} placeholder="de"
+                    value={predioDe}
+                    onChange={e => setPredioDe(e.target.value)}
+                    className="border border-gray-200 rounded-lg px-3 py-2 text-sm w-[80px] focus:outline-none focus:border-blue-500"
+                  />
+                  <span className="text-gray-300">—</span>
+                  <input
+                    type="number" inputMode="numeric" min={0} placeholder="até"
+                    value={predioAte}
+                    onChange={e => setPredioAte(e.target.value)}
+                    className="border border-gray-200 rounded-lg px-3 py-2 text-sm w-[80px] focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Nível</label>
+                <select
+                  value={filtroNivel}
+                  onChange={e => setFiltroNivel(e.target.value)}
+                  className="border border-gray-200 rounded-lg px-3 py-2 text-sm min-w-[110px] focus:outline-none focus:border-blue-500"
+                >
+                  <option value="">Todos</option>
+                  {niveisPulmao.map(n => <option key={n} value={n}>{n}</option>)}
+                </select>
+              </div>
+              {temAlgumFiltro && (
+                <Button variant="ghost" size="sm" onClick={limparFiltros} className="mb-0.5">Limpar filtros</Button>
+              )}
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between px-1 -mb-1">
+            <span className="text-xs text-gray-400">
+              {disponiveis.length} {disponiveis.length === 1 ? 'item' : 'itens'}{temAlgumFiltro ? ' (filtrado)' : ''} · {totalSelecionados} selecionado(s)
+            </span>
           </div>
 
           <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-x-auto">
