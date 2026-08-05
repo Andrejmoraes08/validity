@@ -140,6 +140,16 @@ export function usePaletes() {
     return { error }
   }, [fetchPaletes])
 
+  // Busca direta por código (usada na leitura de QR) — não depende da lista carregada
+  const buscarPorCodigo = useCallback(async (codigo: string) => {
+    const { data, error } = await supabase
+      .from('paletes')
+      .select('*')
+      .eq('codigo', codigo.trim())
+      .maybeSingle()
+    return { palete: (data as Palete) ?? null, error }
+  }, [])
+
   // Marca data de impressão de uma ou mais etiquetas (num único update)
   const marcarImpressas = useCallback(async (ids: string[]) => {
     if (ids.length === 0) return { error: null }
@@ -150,5 +160,5 @@ export function usePaletes() {
     return { error }
   }, [fetchPaletes])
 
-  return { paletes, loading, fetchPaletes, criarComDados, criarPool, vincular, atualizar, excluir, marcarImpressas }
+  return { paletes, loading, fetchPaletes, criarComDados, criarPool, vincular, atualizar, excluir, marcarImpressas, buscarPorCodigo }
 }

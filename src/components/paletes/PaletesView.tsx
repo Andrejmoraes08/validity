@@ -6,6 +6,7 @@ import { PaleteForm } from '@/components/paletes/PaleteForm'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { ZoneCell } from '@/components/ui/ZoneCell'
+import { StatusBadge } from '@/components/paletes/StatusBadge'
 import { useToast } from '@/components/layout/Toast'
 import { usePerfílContext } from '@/lib/perfil-context'
 import { fmtDateTime } from '@/lib/utils'
@@ -13,18 +14,6 @@ import { gerarZplLote, type Dpi } from '@/lib/zpl'
 import { imprimirZpl, baixarZpl, browserPrintDisponivel, impressoraPadrao } from '@/lib/browserprint'
 import type { Palete, PaleteStatus } from '@/lib/types'
 import type { PaleteDados } from '@/hooks/usePaletes'
-
-const STATUS_INFO: Record<PaleteStatus, { label: string; cls: string }> = {
-  vazio:        { label: 'Em branco',    cls: 'bg-gray-100 text-gray-500 border-gray-200' },
-  ativo:        { label: 'Ativo',        cls: 'bg-green-50 text-green-700 border-green-200' },
-  movimentando: { label: 'Em trânsito',  cls: 'bg-amber-50 text-amber-700 border-amber-200' },
-  baixado:      { label: 'Baixado',      cls: 'bg-gray-800 text-white border-gray-800' },
-}
-
-function StatusBadge({ status }: { status: PaleteStatus }) {
-  const s = STATUS_INFO[status] ?? STATUS_INFO.vazio
-  return <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold border ${s.cls}`}>{s.label}</span>
-}
 
 export function PaletesView() {
   const { itens } = useItens()
