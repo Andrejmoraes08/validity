@@ -135,6 +135,32 @@ export function useItens() {
     return { error }
   }
 
+  // Estorno de bloqueio confirmado por equívoco: o item volta ao Plano de Ação,
+  // retornando ao estado anterior — quarentena (se havia motivo de devolução/descarte)
+  // ou segregado. Limpa os campos de bloqueio.
+  const estornarBloqueio = async (id: string, responsavel: string) => {
+    const item = itens.find(i => i.id === id)
+    if (!item) return { error: new Error('Item não encontrado') }
+    if (item.status !== 'bloqueado') return { error: new Error('Item não está bloqueado') }
+    const { data: { user } } = await supabase.auth.getUser()
+    const voltarPara = item.motivo_baixa ? 'quarentena' : 'segregado'
+    const { error } = await supabase.from('itens').update({
+      status: voltarPara,
+      bloqueado_em: null,
+      bloqueado_por: null,
+      motivo_baixa: null,
+    }).eq('id', id)
+    if (!error) {
+      await supabase.from('historico').insert({
+        descricao: `Estorno de bloqueio: ${item.sku} — ${item.endereco_frac || item.endereco_gran} (qtd ${item.quantidade}) retornou ao Plano de Ação (${voltarPara})`,
+        responsavel,
+        user_id: user!.id,
+      })
+      await fetchItens()
+    }
+    return { error }
+  }
+
   const baixarItem = async (id: string, nf: string, responsavel: string) => {
     const item = itens.find(i => i.id === id)
     if (!item) return { error: new Error('Item não encontrado') }
@@ -173,5 +199,5 @@ export function useItens() {
     return { error: errUpdate }
   }
 
-  return { itens, loading, fetchItens, addItem, updateItem, deleteItem, bloquearItem, enviarQuarentena, bloquearQuarentena, estornarItem, baixarItem }
+  return { itens, loading, fetchItens, addItem, updateItem, deleteItem, bloquearItem, enviarQuarentena, bloquearQuarentena, estornarItem, estornarBloqueio, baixarItem }
 }

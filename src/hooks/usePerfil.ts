@@ -46,6 +46,7 @@ export const TODAS_PERMISSOES: { key: string; label: string; tab: string; descri
   { key: 'estoque.editar',       tab: 'estoque',    label: 'Editar item' },
   { key: 'estoque.excluir',      tab: 'estoque',    label: 'Excluir item' },
   { key: 'bloqueios.baixar',     tab: 'bloqueios',  label: 'Registrar baixa (NF)' },
+  { key: 'bloqueios.estornar',   tab: 'bloqueios',  label: 'Estornar bloqueio (retornar ao Plano de Ação)' },
   { key: 'wms.importar',         tab: 'wms',        label: 'Importar planilha' },
 ]
 
