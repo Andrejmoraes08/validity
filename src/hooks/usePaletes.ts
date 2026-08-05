@@ -140,5 +140,15 @@ export function usePaletes() {
     return { error }
   }, [fetchPaletes])
 
-  return { paletes, loading, fetchPaletes, criarComDados, criarPool, vincular, atualizar, excluir }
+  // Marca data de impressão de uma ou mais etiquetas (num único update)
+  const marcarImpressas = useCallback(async (ids: string[]) => {
+    if (ids.length === 0) return { error: null }
+    const { error } = await supabase.from('paletes')
+      .update({ impressa_em: new Date().toISOString() })
+      .in('id', ids)
+    if (!error) await fetchPaletes()
+    return { error }
+  }, [fetchPaletes])
+
+  return { paletes, loading, fetchPaletes, criarComDados, criarPool, vincular, atualizar, excluir, marcarImpressas }
 }

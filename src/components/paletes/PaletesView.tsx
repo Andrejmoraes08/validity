@@ -9,6 +9,8 @@ import { ZoneCell } from '@/components/ui/ZoneCell'
 import { useToast } from '@/components/layout/Toast'
 import { usePerfílContext } from '@/lib/perfil-context'
 import { fmtDateTime } from '@/lib/utils'
+import { gerarZplLote, type Dpi } from '@/lib/zpl'
+import { imprimirZpl, baixarZpl, browserPrintDisponivel, impressoraPadrao } from '@/lib/browserprint'
 import type { Palete, PaleteStatus } from '@/lib/types'
 import type { PaleteDados } from '@/hooks/usePaletes'
 
@@ -26,7 +28,7 @@ function StatusBadge({ status }: { status: PaleteStatus }) {
 
 export function PaletesView() {
   const { itens } = useItens()
-  const { paletes, loading, criarComDados, criarPool, vincular, excluir } = usePaletes()
+  const { paletes, loading, criarComDados, criarPool, vincular, excluir, marcarImpressas } = usePaletes()
   const { toast } = useToast()
   const { perfil } = usePerfílContext()
   const responsavel = perfil?.nome?.trim() || perfil?.email || 'sistema'
@@ -38,6 +40,9 @@ export function PaletesView() {
   const [poolAberto, setPoolAberto] = useState(false)
   const [poolQtd, setPoolQtd] = useState('10')
   const [processando, setProcessando] = useState(false)
+  const [selecionados, setSelecionados] = useState<Set<string>>(new Set())
+  const [dpi, setDpi] = useState<Dpi>(203)
+  const [imprimindo, setImprimindo] = useState(false)
 
   const filtrados = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -59,8 +64,53 @@ export function PaletesView() {
     return c
   }, [paletes])
 
+  const idsVisiveis = useMemo(() => filtrados.map(p => p.id), [filtrados])
+  const todosSel = idsVisiveis.length > 0 && idsVisiveis.every(id => selecionados.has(id))
+  const totalSel = selecionados.size
+
+  const toggle = (id: string) => setSelecionados(prev => {
+    const n = new Set(prev)
+    if (n.has(id)) n.delete(id); else n.add(id)
+    return n
+  })
+  const toggleTodos = () => setSelecionados(prev => {
+    const n = new Set(prev)
+    if (todosSel) idsVisiveis.forEach(id => n.delete(id))
+    else idsVisiveis.forEach(id => n.add(id))
+    return n
+  })
+
   const abrirNovo = () => { setEmEdicao(null); setFormAberto(true) }
   const abrirEdicao = (p: Palete) => { setEmEdicao(p); setFormAberto(true) }
+
+  // Impressão via Zebra Browser Print (ZPL 100x40)
+  const imprimir = async (lista: Palete[]) => {
+    if (lista.length === 0) { toast('Selecione ao menos um palete', 'info'); return }
+    setImprimindo(true)
+    try {
+      const zpl = gerarZplLote(lista, dpi)
+      const res = await imprimirZpl(zpl)
+      if (res.ok) {
+        await marcarImpressas(lista.map(p => p.id))
+        toast(`Enviado para ${res.impressora ?? 'impressora'} (${lista.length} etiqueta(s))`, 'success')
+      } else {
+        toast(res.erro ?? 'Erro ao imprimir', 'error')
+      }
+    } finally {
+      setImprimindo(false)
+    }
+  }
+
+  const testarImpressora = async () => {
+    const disp = await browserPrintDisponivel()
+    if (!disp) {
+      toast('Zebra Browser Print não detectado. Abra o utilitário na máquina da impressora.', 'error')
+      return
+    }
+    const dev = await impressoraPadrao()
+    if (dev) toast(`Impressora conectada: ${dev.name}`, 'success')
+    else toast('Browser Print ativo, mas sem impressora padrão definida.', 'info')
+  }
 
   const handleSalvar = async (dados: PaleteDados) => {
     if (emEdicao) {
@@ -101,8 +151,26 @@ export function PaletesView() {
             Cadastro e vínculo de paletes do pulmão. Cada palete recebe um código único para o QR.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-1 text-xs text-gray-500">
+            <span>DPI</span>
+            <select
+              value={dpi}
+              onChange={e => setDpi(Number(e.target.value) as Dpi)}
+              className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-blue-500"
+              title="Resolução da impressora Zebra"
+            >
+              <option value={203}>203</option>
+              <option value={300}>300</option>
+            </select>
+          </div>
+          <Button variant="ghost" size="sm" onClick={testarImpressora}>Testar impressora</Button>
           <Button variant="secondary" onClick={() => setPoolAberto(true)}>Gerar etiquetas em branco</Button>
+          {totalSel > 0 && (
+            <Button variant="primary" onClick={() => imprimir(filtrados.filter(p => selecionados.has(p.id)))} disabled={imprimindo}>
+              {imprimindo ? 'Imprimindo…' : `Imprimir (${totalSel})`}
+            </Button>
+          )}
           <Button variant="primary" onClick={abrirNovo}>Novo palete</Button>
         </div>
       </div>
@@ -155,6 +223,15 @@ export function PaletesView() {
           <table className="w-full text-xs">
             <thead className="bg-gray-50 border-b border-gray-100">
               <tr>
+                <th className="px-3 py-3 w-10">
+                  <input
+                    type="checkbox"
+                    checked={todosSel}
+                    onChange={toggleTodos}
+                    className="w-4 h-4 accent-blue-600 cursor-pointer"
+                    title="Selecionar todos os visíveis"
+                  />
+                </th>
                 {['Código', 'Status', 'SKU', 'Descrição', 'Qtd', 'Validade', 'End. Pulmão', 'Vínculo', ''].map((h, i) => (
                   <th key={i} className="px-4 py-3 text-left text-gray-500 font-semibold text-[11px] uppercase tracking-wide whitespace-nowrap">{h}</th>
                 ))}
@@ -162,7 +239,15 @@ export function PaletesView() {
             </thead>
             <tbody>
               {filtrados.map(p => (
-                <tr key={p.id} className="border-b border-gray-50 hover:bg-gray-50">
+                <tr key={p.id} className={`border-b border-gray-50 hover:bg-gray-50 ${selecionados.has(p.id) ? 'bg-blue-50/60' : ''}`}>
+                  <td className="px-3 py-3">
+                    <input
+                      type="checkbox"
+                      checked={selecionados.has(p.id)}
+                      onChange={() => toggle(p.id)}
+                      className="w-4 h-4 accent-blue-600 cursor-pointer"
+                    />
+                  </td>
                   <td className="px-4 py-3 font-mono font-bold text-gray-800 whitespace-nowrap">{p.codigo}</td>
                   <td className="px-4 py-3"><StatusBadge status={p.status} /></td>
                   <td className="px-4 py-3 font-mono font-bold text-gray-800">{p.sku || '—'}</td>
@@ -180,6 +265,19 @@ export function PaletesView() {
                   </td>
                   <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
                     <div className="flex items-center gap-2 whitespace-nowrap">
+                      <button
+                        onClick={() => imprimir([p])}
+                        disabled={imprimindo}
+                        className="text-blue-500 hover:text-blue-700 font-semibold disabled:opacity-40"
+                        title="Imprimir etiqueta na Zebra"
+                      >Imprimir</button>
+                      <span className="text-gray-200">|</span>
+                      <button
+                        onClick={() => baixarZpl(gerarZplLote([p], dpi), p.codigo)}
+                        className="text-gray-500 hover:text-gray-700 font-semibold"
+                        title="Baixar o ZPL desta etiqueta (fallback manual)"
+                      >ZPL</button>
+                      <span className="text-gray-200">|</span>
                       <button
                         onClick={() => abrirEdicao(p)}
                         className="text-blue-500 hover:text-blue-700 font-semibold"
