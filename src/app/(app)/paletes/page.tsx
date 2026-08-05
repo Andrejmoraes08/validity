@@ -7,8 +7,6 @@ import { useToast } from '@/components/layout/Toast'
 import { diasParaVencer, getZone } from '@/lib/zones'
 import { fmtDate, fmtDateTime, semValidade, LABEL_SEM_VALIDADE } from '@/lib/utils'
 import { usePerfílContext } from '@/lib/perfil-context'
-import { gerarZplItemLote, type Dpi } from '@/lib/zpl'
-import { imprimirZpl, browserPrintDisponivel, impressoraPadrao } from '@/lib/browserprint'
 import { qrDataUrl } from '@/lib/qr'
 import type { Item } from '@/lib/types'
 
@@ -61,8 +59,6 @@ function EtiquetasView() {
   const [selecionados, setSelecionados] = useState<Set<string>>(new Set())
   const [previewId, setPreviewId] = useState<string | null>(null)
   const [gerando, setGerando] = useState(false)
-  const [dpi, setDpi] = useState<Dpi>(203)
-  const [imprimindoZebra, setImprimindoZebra] = useState(false)
 
   // Base: itens ativos, com saldo E com endereço de PULMÃO (picking não gera etiqueta de palete).
   // Também alimenta as opções dos seletores de rua/nível.
@@ -187,26 +183,32 @@ function EtiquetasView() {
     }
   }
 
-  // Impressão na Zebra 100x40 (QR nativo do ZPL) via Browser Print
-  const imprimirZebra = async (alvo: Item[]) => {
+  // Envia o PDF A4 (com QR) direto ao diálogo de impressão da impressora padrão
+  const imprimirPdf = async (alvo: Item[]) => {
     if (alvo.length === 0) { toast('Selecione ao menos um item', 'info'); return }
-    setImprimindoZebra(true)
+    setGerando(true)
     try {
-      const zpl = gerarZplItemLote(alvo, dpi)
-      const res = await imprimirZpl(zpl)
-      if (res.ok) toast(`Enviado para ${res.impressora ?? 'impressora'} (${alvo.length})`, 'success')
-      else toast(res.erro ?? 'Erro ao imprimir', 'error')
+      const doc = await construirDoc(alvo)
+      doc.autoPrint()
+      const url = String(doc.output('bloburl'))
+      const iframe = document.createElement('iframe')
+      iframe.style.position = 'fixed'
+      iframe.style.right = '0'; iframe.style.bottom = '0'
+      iframe.style.width = '0'; iframe.style.height = '0'; iframe.style.border = '0'
+      iframe.style.visibility = 'hidden'
+      iframe.src = url
+      iframe.onload = () => {
+        try { iframe.contentWindow?.focus(); iframe.contentWindow?.print() } catch (e) { console.error('print', e) }
+      }
+      document.body.appendChild(iframe)
+      setTimeout(() => { iframe.remove(); URL.revokeObjectURL(url) }, 60000)
+      toast(`Enviado para impressão (${alvo.length})`)
+    } catch (e) {
+      console.error('etiquetas', e)
+      toast('Erro ao gerar as etiquetas', 'error')
     } finally {
-      setImprimindoZebra(false)
+      setGerando(false)
     }
-  }
-
-  const testarImpressora = async () => {
-    const disp = await browserPrintDisponivel()
-    if (!disp) { toast('Zebra Browser Print não detectado. Abra o utilitário na máquina da impressora.', 'error'); return }
-    const dev = await impressoraPadrao()
-    if (dev) toast(`Impressora conectada: ${dev.name}`, 'success')
-    else toast('Browser Print ativo, mas sem impressora padrão definida.', 'info')
   }
 
   const hoje = () => new Date().toISOString().split('T')[0]
@@ -219,31 +221,18 @@ function EtiquetasView() {
         <div>
           <h1 className="text-xl font-extrabold text-gray-900">Etiquetas de Item (QR)</h1>
           <p className="text-sm text-gray-400">
-            Cada item de pulmão tem um QR Code para verificação, validação e inspeção. Imprima na Zebra 100×40 ou baixe em PDF.
+            Cada item de pulmão tem um QR Code para verificação, validação e inspeção. Imprima em A4 (impressora padrão) ou baixe em PDF.
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           {totalSelecionados > 0 && (
             <Button variant="ghost" size="sm" onClick={limpar}>Limpar seleção</Button>
           )}
-          <div className="flex items-center gap-1 text-xs text-gray-500">
-            <span>DPI</span>
-            <select
-              value={dpi}
-              onChange={e => setDpi(Number(e.target.value) as Dpi)}
-              className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-blue-500"
-              title="Resolução da impressora Zebra"
-            >
-              <option value={203}>203</option>
-              <option value={300}>300</option>
-            </select>
-          </div>
-          <Button variant="ghost" size="sm" onClick={testarImpressora}>Testar impressora</Button>
           <Button variant="secondary" onClick={() => baixarPdf(alvoSelecionado, `etiquetas-${hoje()}.pdf`)} disabled={gerando || totalSelecionados === 0}>
-            {gerando ? 'Gerando…' : 'Baixar PDF'}
+            Baixar PDF
           </Button>
-          <Button variant="primary" onClick={() => imprimirZebra(alvoSelecionado)} disabled={imprimindoZebra || totalSelecionados === 0}>
-            {imprimindoZebra ? 'Imprimindo…' : `Imprimir Zebra (${totalSelecionados})`}
+          <Button variant="primary" onClick={() => imprimirPdf(alvoSelecionado)} disabled={gerando || totalSelecionados === 0}>
+            {gerando ? 'Gerando…' : `Imprimir (${totalSelecionados})`}
           </Button>
         </div>
       </div>
@@ -381,11 +370,11 @@ function EtiquetasView() {
                         <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
                           <div className="flex items-center gap-2 whitespace-nowrap">
                             <button
-                              onClick={() => imprimirZebra([item])}
-                              disabled={imprimindoZebra}
+                              onClick={() => imprimirPdf([item])}
+                              disabled={gerando}
                               className="text-blue-500 hover:text-blue-700 font-semibold disabled:opacity-40"
-                              title="Imprimir etiqueta deste item na Zebra"
-                            >Zebra</button>
+                              title="Imprimir etiqueta deste item (A4)"
+                            >Imprimir</button>
                             <span className="text-gray-200">|</span>
                             <button
                               onClick={() => baixarPdf([item], `etiqueta-${item.sku}-${hoje()}.pdf`)}
@@ -418,7 +407,7 @@ function EtiquetasView() {
             </div>
           )}
           <p className="text-[11px] text-gray-400 leading-relaxed">
-            Clique numa linha para pré-visualizar. Marque os itens e use <strong>Imprimir Zebra</strong> (100×40, QR nativo) ou <strong>Baixar PDF</strong>.
+            Clique numa linha para pré-visualizar. Marque os itens e use <strong>Imprimir</strong> (A4, impressora padrão) ou <strong>Baixar PDF</strong>.
             O <strong>QR Code</strong> carrega o código do item (<span className="font-mono">IT-000000</span>) para leitura na inspeção.
           </p>
         </div>
