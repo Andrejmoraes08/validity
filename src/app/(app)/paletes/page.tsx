@@ -1,5 +1,5 @@
 'use client'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useItens } from '@/hooks/useItens'
 import { ZoneCell } from '@/components/ui/ZoneCell'
 import { Button } from '@/components/ui/Button'
@@ -7,14 +7,14 @@ import { useToast } from '@/components/layout/Toast'
 import { diasParaVencer, getZone } from '@/lib/zones'
 import { fmtDate, fmtDateTime, semValidade, LABEL_SEM_VALIDADE } from '@/lib/utils'
 import { usePerfílContext } from '@/lib/perfil-context'
-import { PaletesView } from '@/components/paletes/PaletesView'
-import { ConsultaView } from '@/components/paletes/ConsultaView'
-import { InspecaoView } from '@/components/paletes/InspecaoView'
-import { MovimentacaoView } from '@/components/paletes/MovimentacaoView'
+import { gerarZplItemLote, type Dpi } from '@/lib/zpl'
+import { imprimirZpl, browserPrintDisponivel, impressoraPadrao } from '@/lib/browserprint'
+import { qrDataUrl } from '@/lib/qr'
 import type { Item } from '@/lib/types'
 
-// Dados mínimos para identificar um palete na etiqueta
+// Dados mínimos para identificar um item na etiqueta
 interface PaleteData {
+  codigo_qr?: string
   sku: string
   descricao: string
   lote: string
@@ -43,29 +43,7 @@ function zonaVisual(validade: string) {
 }
 
 export default function PaletesPage() {
-  const [aba, setAba] = useState<'paletes' | 'consultar' | 'inspecao' | 'movimentacao' | 'etiquetas'>('paletes')
-  const tab = (key: typeof aba, label: string) => (
-    <button
-      onClick={() => setAba(key)}
-      className={`px-4 py-1.5 text-sm font-semibold rounded-md transition-colors ${aba === key ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-    >{label}</button>
-  )
-  return (
-    <div className="flex flex-col gap-4">
-      <div className="flex gap-1 bg-gray-100 p-1 rounded-lg w-fit">
-        {tab('paletes', 'Paletes (QR)')}
-        {tab('consultar', 'Consultar (QR)')}
-        {tab('inspecao', 'Inspeção (QR)')}
-        {tab('movimentacao', 'Movimentação')}
-        {tab('etiquetas', 'Etiquetas por item')}
-      </div>
-      {aba === 'paletes' ? <PaletesView />
-        : aba === 'consultar' ? <ConsultaView />
-        : aba === 'inspecao' ? <InspecaoView />
-        : aba === 'movimentacao' ? <MovimentacaoView />
-        : <EtiquetasView />}
-    </div>
-  )
+  return <EtiquetasView />
 }
 
 function EtiquetasView() {
@@ -83,6 +61,8 @@ function EtiquetasView() {
   const [selecionados, setSelecionados] = useState<Set<string>>(new Set())
   const [previewId, setPreviewId] = useState<string | null>(null)
   const [gerando, setGerando] = useState(false)
+  const [dpi, setDpi] = useState<Dpi>(203)
+  const [imprimindoZebra, setImprimindoZebra] = useState(false)
 
   // Base: itens ativos, com saldo E com endereço de PULMÃO (picking não gera etiqueta de palete).
   // Também alimenta as opções dos seletores de rua/nível.
@@ -182,50 +162,51 @@ function EtiquetasView() {
     const { jsPDF } = await import('jspdf')
     const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
     const geradoEm = fmtDateTime(new Date().toISOString())
-    alvo.forEach((it, i) => {
+    for (let i = 0; i < alvo.length; i++) {
+      const it = alvo[i]
       if (i > 0) doc.addPage()
-      desenharEtiqueta(doc, it, i + 1, alvo.length, responsavel, geradoEm)
-    })
+      const qr = it.codigo_qr ? await qrDataUrl(it.codigo_qr, 240) : null
+      desenharEtiqueta(doc, it, i + 1, alvo.length, responsavel, geradoEm, qr)
+    }
     return doc
   }
 
-  // Envia o PDF para o diálogo de impressão sem baixar arquivo (via iframe oculto)
-  const imprimirDoc = (doc: Doc) => {
-    doc.autoPrint()
-    const url = String(doc.output('bloburl'))
-    const iframe = document.createElement('iframe')
-    iframe.style.position = 'fixed'
-    iframe.style.right = '0'; iframe.style.bottom = '0'
-    iframe.style.width = '0'; iframe.style.height = '0'; iframe.style.border = '0'
-    iframe.style.visibility = 'hidden'
-    iframe.src = url
-    iframe.onload = () => {
-      try { iframe.contentWindow?.focus(); iframe.contentWindow?.print() } catch (e) { console.error('print', e) }
-    }
-    document.body.appendChild(iframe)
-    // Remove o iframe depois que o diálogo já foi aberto
-    setTimeout(() => { iframe.remove(); URL.revokeObjectURL(url) }, 60000)
-  }
-
-  // Ação única para imprimir ou baixar, seja em lote (seleção) ou item avulso
-  const gerarEtiquetas = async (modo: 'imprimir' | 'pdf', alvo: Item[], nomeArquivo: string) => {
+  // Baixa as etiquetas em PDF A4 (com QR) — uma etiqueta por página
+  const baixarPdf = async (alvo: Item[], nomeArquivo: string) => {
     if (alvo.length === 0) { toast('Selecione ao menos um item para gerar etiquetas', 'info'); return }
     setGerando(true)
     try {
       const doc = await construirDoc(alvo)
-      if (modo === 'pdf') {
-        doc.save(nomeArquivo)
-        toast(`${alvo.length} etiqueta(s) em PDF`)
-      } else {
-        imprimirDoc(doc)
-        toast(`Enviado para impressão (${alvo.length})`)
-      }
+      doc.save(nomeArquivo)
+      toast(`${alvo.length} etiqueta(s) em PDF`)
     } catch (e) {
       console.error('etiquetas', e)
       toast('Erro ao gerar as etiquetas', 'error')
     } finally {
       setGerando(false)
     }
+  }
+
+  // Impressão na Zebra 100x40 (QR nativo do ZPL) via Browser Print
+  const imprimirZebra = async (alvo: Item[]) => {
+    if (alvo.length === 0) { toast('Selecione ao menos um item', 'info'); return }
+    setImprimindoZebra(true)
+    try {
+      const zpl = gerarZplItemLote(alvo, dpi)
+      const res = await imprimirZpl(zpl)
+      if (res.ok) toast(`Enviado para ${res.impressora ?? 'impressora'} (${alvo.length})`, 'success')
+      else toast(res.erro ?? 'Erro ao imprimir', 'error')
+    } finally {
+      setImprimindoZebra(false)
+    }
+  }
+
+  const testarImpressora = async () => {
+    const disp = await browserPrintDisponivel()
+    if (!disp) { toast('Zebra Browser Print não detectado. Abra o utilitário na máquina da impressora.', 'error'); return }
+    const dev = await impressoraPadrao()
+    if (dev) toast(`Impressora conectada: ${dev.name}`, 'success')
+    else toast('Browser Print ativo, mas sem impressora padrão definida.', 'info')
   }
 
   const hoje = () => new Date().toISOString().split('T')[0]
@@ -236,20 +217,33 @@ function EtiquetasView() {
     <div className="flex flex-col gap-4">
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
-          <h1 className="text-xl font-extrabold text-gray-900">Identificação de Paletes</h1>
+          <h1 className="text-xl font-extrabold text-gray-900">Etiquetas de Item (QR)</h1>
           <p className="text-sm text-gray-400">
-            Selecione os itens e gere etiquetas A4 (paisagem) para impressão — SKU, quantidade, endereço e validade
+            Cada item de pulmão tem um QR Code para verificação, validação e inspeção. Imprima na Zebra 100×40 ou baixe em PDF.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           {totalSelecionados > 0 && (
             <Button variant="ghost" size="sm" onClick={limpar}>Limpar seleção</Button>
           )}
-          <Button variant="secondary" onClick={() => gerarEtiquetas('pdf', alvoSelecionado, `paletes-${hoje()}.pdf`)} disabled={gerando || totalSelecionados === 0}>
-            Baixar PDF
+          <div className="flex items-center gap-1 text-xs text-gray-500">
+            <span>DPI</span>
+            <select
+              value={dpi}
+              onChange={e => setDpi(Number(e.target.value) as Dpi)}
+              className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-blue-500"
+              title="Resolução da impressora Zebra"
+            >
+              <option value={203}>203</option>
+              <option value={300}>300</option>
+            </select>
+          </div>
+          <Button variant="ghost" size="sm" onClick={testarImpressora}>Testar impressora</Button>
+          <Button variant="secondary" onClick={() => baixarPdf(alvoSelecionado, `etiquetas-${hoje()}.pdf`)} disabled={gerando || totalSelecionados === 0}>
+            {gerando ? 'Gerando…' : 'Baixar PDF'}
           </Button>
-          <Button variant="primary" onClick={() => gerarEtiquetas('imprimir', alvoSelecionado, '')} disabled={gerando || totalSelecionados === 0}>
-            {gerando ? 'Gerando…' : `Imprimir (${totalSelecionados})`}
+          <Button variant="primary" onClick={() => imprimirZebra(alvoSelecionado)} disabled={imprimindoZebra || totalSelecionados === 0}>
+            {imprimindoZebra ? 'Imprimindo…' : `Imprimir Zebra (${totalSelecionados})`}
           </Button>
         </div>
       </div>
@@ -387,14 +381,14 @@ function EtiquetasView() {
                         <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
                           <div className="flex items-center gap-2 whitespace-nowrap">
                             <button
-                              onClick={() => gerarEtiquetas('imprimir', [item], '')}
-                              disabled={gerando}
+                              onClick={() => imprimirZebra([item])}
+                              disabled={imprimindoZebra}
                               className="text-blue-500 hover:text-blue-700 font-semibold disabled:opacity-40"
-                              title="Imprimir etiqueta deste item"
-                            >Imprimir</button>
+                              title="Imprimir etiqueta deste item na Zebra"
+                            >Zebra</button>
                             <span className="text-gray-200">|</span>
                             <button
-                              onClick={() => gerarEtiquetas('pdf', [item], `palete-${item.sku}-${hoje()}.pdf`)}
+                              onClick={() => baixarPdf([item], `etiqueta-${item.sku}-${hoje()}.pdf`)}
                               disabled={gerando}
                               className="text-gray-500 hover:text-gray-700 font-semibold disabled:opacity-40"
                               title="Baixar etiqueta deste item em PDF"
@@ -424,8 +418,8 @@ function EtiquetasView() {
             </div>
           )}
           <p className="text-[11px] text-gray-400 leading-relaxed">
-            Clique numa linha para pré-visualizar. Marque os itens e use <strong>Gerar etiquetas</strong> para
-            um PDF com uma etiqueta por página. O <strong>QR Code do palete</strong> é gerado e impresso na aba <strong>Paletes (QR)</strong> (etiqueta Zebra 100×40).
+            Clique numa linha para pré-visualizar. Marque os itens e use <strong>Imprimir Zebra</strong> (100×40, QR nativo) ou <strong>Baixar PDF</strong>.
+            O <strong>QR Code</strong> carrega o código do item (<span className="font-mono">IT-000000</span>) para leitura na inspeção.
           </p>
         </div>
       </div>
@@ -436,13 +430,20 @@ function EtiquetasView() {
 // ─── Pré-visualização HTML (espelha o layout do PDF) ────────────────────────
 function LabelPreview({ data, responsavel }: { data: PaleteData; responsavel: string }) {
   const zv = zonaVisual(data.validade)
+  const [qrUrl, setQrUrl] = useState('')
+  useEffect(() => {
+    let ativo = true
+    if (data.codigo_qr) qrDataUrl(data.codigo_qr, 200).then(u => { if (ativo) setQrUrl(u) })
+    else setQrUrl('')
+    return () => { ativo = false }
+  }, [data.codigo_qr])
   return (
     <div className="aspect-[297/210] w-full rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden flex flex-col">
       {/* Cabeçalho */}
       <div className="flex items-center justify-between px-[4%] py-[3%] text-white" style={{ background: '#1a1d24' }}>
         <div>
-          <div className="font-extrabold leading-tight" style={{ fontSize: 'clamp(11px,2.4vw,18px)' }}>IDENTIFICAÇÃO DE PALETE</div>
-          <div className="text-white/50" style={{ fontSize: 'clamp(7px,1.2vw,10px)' }}>Etiqueta de palete · rastreio e validação</div>
+          <div className="font-extrabold leading-tight" style={{ fontSize: 'clamp(11px,2.4vw,18px)' }}>ETIQUETA DE ITEM</div>
+          <div className="text-white/50" style={{ fontSize: 'clamp(7px,1.2vw,10px)' }}>Verificação · validação · inspeção</div>
         </div>
         <div className="text-right">
           <div className="font-extrabold" style={{ fontSize: 'clamp(9px,1.8vw,14px)' }}>VALIDITY</div>
@@ -471,16 +472,16 @@ function LabelPreview({ data, responsavel }: { data: PaleteData; responsavel: st
             </div>
           </div>
 
-          {/* QR reservado (reduzido) */}
-          <div className="flex flex-col items-center shrink-0" style={{ width: '18%' }}>
-            <div className="w-full aspect-square rounded-md border-2 border-dashed border-gray-300 relative grid place-items-center text-center p-1">
-              <span className="absolute top-1 left-1 w-[26%] aspect-square border-2 border-gray-200 rounded-[1px]" />
-              <span className="absolute top-1 right-1 w-[26%] aspect-square border-2 border-gray-200 rounded-[1px]" />
-              <span className="absolute bottom-1 left-1 w-[26%] aspect-square border-2 border-gray-200 rounded-[1px]" />
-              <span className="text-gray-400 font-bold uppercase" style={{ fontSize: 'clamp(6px,1.1vw,9px)' }}>QR</span>
+          {/* QR do item */}
+          <div className="flex flex-col items-center shrink-0" style={{ width: '20%' }}>
+            <div className="w-full aspect-square rounded-md border border-gray-200 grid place-items-center p-1 bg-white">
+              {qrUrl
+                // eslint-disable-next-line @next/next/no-img-element
+                ? <img src={qrUrl} alt="QR Code do item" className="w-full h-full object-contain" />
+                : <span className="text-gray-300" style={{ fontSize: 'clamp(6px,1.1vw,9px)' }}>—</span>}
             </div>
-            <p className="text-gray-400 text-center mt-1 leading-tight" style={{ fontSize: 'clamp(5px,0.9vw,8px)' }}>
-              QR na etiqueta Zebra
+            <p className="font-mono text-gray-600 text-center mt-1 leading-tight" style={{ fontSize: 'clamp(6px,1.1vw,10px)' }}>
+              {data.codigo_qr || '—'}
             </p>
           </div>
         </div>
@@ -515,7 +516,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 // ─── Desenho da etiqueta no PDF (A4 paisagem 297×210mm) ─────────────────────
 type Doc = import('jspdf').jsPDF
 
-function desenharEtiqueta(doc: Doc, d: PaleteData, idx: number, total: number, responsavel: string, geradoEm: string) {
+function desenharEtiqueta(doc: Doc, d: PaleteData, idx: number, total: number, responsavel: string, geradoEm: string, qr: string | null) {
   const DARK: [number, number, number] = [26, 29, 36]
   const GRAY: [number, number, number] = [107, 114, 128]
   const LIGHT: [number, number, number] = [215, 219, 226]
@@ -526,9 +527,9 @@ function desenharEtiqueta(doc: Doc, d: PaleteData, idx: number, total: number, r
   doc.rect(10, 19, 277, 13, 'F')
   doc.setTextColor(255, 255, 255)
   doc.setFont('helvetica', 'bold'); doc.setFontSize(20)
-  doc.text('IDENTIFICAÇÃO DE PALETE', 18, 21)
+  doc.text('ETIQUETA DE ITEM', 18, 21)
   doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(180, 190, 205)
-  doc.text('Etiqueta de palete · rastreio e validação', 18, 28)
+  doc.text('Verificação · validação · inspeção', 18, 28)
   doc.setFont('helvetica', 'bold'); doc.setFontSize(15); doc.setTextColor(255, 255, 255)
   doc.text('VALIDITY', 280, 20, { align: 'right' })
   doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(180, 190, 205)
@@ -540,27 +541,16 @@ function desenharEtiqueta(doc: Doc, d: PaleteData, idx: number, total: number, r
     doc.text(txt.toUpperCase(), x, y)
   }
 
-  // Área reservada para o QR Code (menor, canto superior direito)
+  // QR Code do item (canto superior direito) + código legível
   const qx = 235, qy = 40, qs = 46
-  doc.setDrawColor(...LIGHT); doc.setLineWidth(0.6)
-  doc.setLineDashPattern([2, 2], 0)
-  doc.roundedRect(qx, qy, qs, qs, 2.5, 2.5, 'S')
-  doc.setLineDashPattern([], 0)
-  const finder = (fx: number, fy: number) => {
-    const s = 9
-    doc.setDrawColor(205, 210, 218); doc.setLineWidth(1)
-    doc.roundedRect(fx, fy, s, s, 0.8, 0.8, 'S')
-    doc.setFillColor(226, 232, 240)
-    doc.rect(fx + s * 0.3, fy + s * 0.3, s * 0.4, s * 0.4, 'F')
+  if (qr) {
+    doc.addImage(qr, 'PNG', qx, qy, qs, qs)
+  } else {
+    doc.setDrawColor(...LIGHT); doc.setLineWidth(0.6)
+    doc.roundedRect(qx, qy, qs, qs, 2.5, 2.5, 'S')
   }
-  finder(qx + 4, qy + 4)
-  finder(qx + qs - 13, qy + 4)
-  finder(qx + 4, qy + qs - 13)
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(8); doc.setTextColor(150, 156, 165)
-  doc.text('QR', qx + qs / 2, qy + qs / 2 + 1, { align: 'center' })
-  doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(...GRAY)
-  const cap = doc.splitTextToSize('QR na etiqueta Zebra', qs)
-  doc.text(cap, qx + qs / 2, qy + qs + 5, { align: 'center' })
+  doc.setFont('courier', 'bold'); doc.setFontSize(11); doc.setTextColor(...DARK)
+  doc.text(String(d.codigo_qr || '—'), qx + qs / 2, qy + qs + 6, { align: 'center' })
 
   // SKU (destaque principal)
   label('Código do produto (SKU)', 16, 44)
