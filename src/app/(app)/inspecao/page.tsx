@@ -5,6 +5,7 @@ import { useInspecao, type EntradaFila, type InspecaoAberta, type TipoEndereco }
 import { ZoneCell } from '@/components/ui/ZoneCell'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
+import { QrScanner } from '@/components/qr/QrScanner'
 import { getZone, diasParaVencer } from '@/lib/zones'
 import { fmtDateTime, normalizarEndereco } from '@/lib/utils'
 import { supabase } from '@/lib/supabase'
@@ -69,6 +70,7 @@ export default function InspecaoPage() {
     return () => { ativo = false }
   }, [state.phase, buscarAbertas])
   const [responsavel, setResponsavel] = useState('')
+  const [qrAberto, setQrAberto] = useState(false)
   const [validadeEncontrada, setValidadeEncontrada] = useState('') // ISO YYYY-MM-DD
   const [validadeTexto, setValidadeTexto] = useState('')           // exibição DD/MM/AAAA
   const [obs, setObs] = useState('')
@@ -424,6 +426,26 @@ export default function InspecaoPage() {
   const handleRetomar = (aberta: InspecaoAberta) => {
     retomar(aberta, itens)
     limparEstado()
+  }
+
+  // Inicia a inspeção lendo o QR do item (código IT-000000) — atalho por leitura.
+  const iniciarPorQr = async (codigo: string) => {
+    setQrAberto(false)
+    const cod = codigo.trim()
+    if (!responsavel.trim()) { toast('Informe o responsável antes de ler o QR', 'info'); return }
+    const item = itens.find(i => i.codigo_qr === cod)
+    if (!item) { toast(`Nenhum item encontrado para o código ${cod}`, 'error'); return }
+    if (item.status !== 'ativo') { toast(`Item ${item.sku} não está ativo (${item.status})`, 'info'); return }
+    if (abertaMesmoResp) { toast('Você já tem uma inspeção aberta — retome ou cancele antes de usar o QR', 'info'); return }
+    const entradas: EntradaFila[] = []
+    if (item.endereco_frac) entradas.push({ item, tipo: 'frac', endereco: item.endereco_frac })
+    if (item.endereco_gran) entradas.push({ item, tipo: 'gran', endereco: item.endereco_gran })
+    if (entradas.length === 0) { toast('Item sem endereço para inspecionar', 'info'); return }
+    setIniciando(true)
+    const { error } = await iniciar(entradas, responsavel)
+    setIniciando(false)
+    if (error) toast('Erro ao iniciar inspeção — verifique a migration 005', 'error')
+    else { setAbertas([]); limparEstado() }
   }
 
   const handleFoto = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -815,6 +837,17 @@ export default function InspecaoPage() {
         {entradasFiltradas.length === 0 && (ruasSelecionadas.length > 0 || zonasSelecionadas.length > 0) && (
           <p className="text-xs text-center text-amber-600">Nenhum endereço corresponde aos filtros selecionados</p>
         )}
+        <div className="flex items-center gap-2 text-[11px] text-gray-400">
+          <span className="flex-1 border-t border-gray-100" /> ou <span className="flex-1 border-t border-gray-100" />
+        </div>
+        <Button
+          variant="secondary"
+          onClick={() => { if (!responsavel.trim()) { toast('Informe o responsável primeiro', 'info'); return } setQrAberto(true) }}
+          className="w-full justify-center py-2.5"
+        >
+          📷 Iniciar por QR do item
+        </Button>
+        <p className="text-[11px] text-center text-gray-400">Leia o QR da etiqueta para inspecionar aquele item direto.</p>
       </div>
 
       {/* Modal — o mesmo responsável já tem inspeção em aberto */}
@@ -845,6 +878,8 @@ export default function InspecaoPage() {
           </div>
         </div>
       </Modal>
+
+      <QrScanner open={qrAberto} onClose={() => setQrAberto(false)} onDetect={iniciarPorQr} title="Ler QR do item" />
     </div>
   )
 
