@@ -1,8 +1,8 @@
 'use client'
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
-import { uid } from '@/lib/utils'
-import type { Palete, PaleteStatus } from '@/lib/types'
+import { uid, normalizarEndereco } from '@/lib/utils'
+import type { Palete, PaleteStatus, Movimentacao } from '@/lib/types'
 
 // Dados que o conferente informa ao vincular um palete na entrada
 export interface PaleteDados {
@@ -180,6 +180,47 @@ export function usePaletes() {
     return { error }
   }, [])
 
+  // Movimentação: muda o palete de endereço e registra o evento (origem→destino).
+  const moverPalete = useCallback(async (palete: Palete, destino: string, responsavel: string) => {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return { error: new Error('Sessão expirada') }
+    const origem = palete.endereco_atual || ''
+    const destinoNorm = normalizarEndereco(destino)
+    if (!destinoNorm) return { error: new Error('Informe um endereço de destino válido') }
+    if (destinoNorm === origem) return { error: new Error('O destino é igual ao endereço atual') }
+
+    const { error } = await supabase.from('paletes').update({
+      endereco_atual: destinoNorm,
+      ultima_leitura: new Date().toISOString(),
+    }).eq('id', palete.id)
+    if (error) return { error }
+
+    const { error: e2 } = await supabase.from('movimentacoes').insert({
+      palete_id: palete.id,
+      codigo: palete.codigo,
+      origem,
+      destino: destinoNorm,
+      responsavel,
+      user_id: user.id,
+    })
+    await supabase.from('historico').insert({
+      descricao: `Movimentação palete ${palete.codigo}${palete.sku ? ` (${palete.sku})` : ''}: ${origem || 's/ endereço'} → ${destinoNorm}`,
+      responsavel,
+      user_id: user.id,
+    })
+    return { error: e2, destino: destinoNorm }
+  }, [])
+
+  // Histórico de movimentações de um palete (mais recentes primeiro)
+  const historicoMovimentacoes = useCallback(async (paleteId: string): Promise<Movimentacao[]> => {
+    const { data } = await supabase.from('movimentacoes')
+      .select('*')
+      .eq('palete_id', paleteId)
+      .order('created_at', { ascending: false })
+      .limit(10)
+    return (data as Movimentacao[]) ?? []
+  }, [])
+
   // Marca data de impressão de uma ou mais etiquetas (num único update)
   const marcarImpressas = useCallback(async (ids: string[]) => {
     if (ids.length === 0) return { error: null }
@@ -190,5 +231,5 @@ export function usePaletes() {
     return { error }
   }, [fetchPaletes])
 
-  return { paletes, loading, fetchPaletes, criarComDados, criarPool, vincular, atualizar, excluir, marcarImpressas, buscarPorCodigo, confirmarPosicao, registrarOcorrencia }
+  return { paletes, loading, fetchPaletes, criarComDados, criarPool, vincular, atualizar, excluir, marcarImpressas, buscarPorCodigo, confirmarPosicao, registrarOcorrencia, moverPalete, historicoMovimentacoes }
 }
