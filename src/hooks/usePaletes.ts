@@ -150,6 +150,36 @@ export function usePaletes() {
     return { palete: (data as Palete) ?? null, error }
   }, [])
 
+  // Inspeção de pulmão: confirma que o palete está na posição registrada.
+  // Grava apenas ultima_leitura. Não refaz o fetch da lista (leituras em sequência).
+  const confirmarPosicao = useCallback(async (id: string) => {
+    const { error } = await supabase.from('paletes')
+      .update({ ultima_leitura: new Date().toISOString() })
+      .eq('id', id)
+    return { error }
+  }, [])
+
+  // Inspeção de pulmão: registra uma ocorrência (avaria/divergência) no palete —
+  // acrescenta à observação, grava ultima_leitura e registra no histórico do sistema.
+  const registrarOcorrencia = useCallback(async (palete: Palete, nota: string, responsavel: string) => {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return { error: new Error('Sessão expirada') }
+    const carimbo = new Date().toLocaleString('pt-BR')
+    const obsAnterior = palete.observacao ? `${palete.observacao}\n` : ''
+    const { error } = await supabase.from('paletes').update({
+      observacao: `${obsAnterior}[${carimbo}] ${nota}`,
+      ultima_leitura: new Date().toISOString(),
+    }).eq('id', palete.id)
+    if (!error) {
+      await supabase.from('historico').insert({
+        descricao: `Inspeção pulmão — ocorrência no palete ${palete.codigo}${palete.sku ? ` (${palete.sku})` : ''} @ ${palete.endereco_atual || 's/ endereço'}: ${nota}`,
+        responsavel,
+        user_id: user.id,
+      })
+    }
+    return { error }
+  }, [])
+
   // Marca data de impressão de uma ou mais etiquetas (num único update)
   const marcarImpressas = useCallback(async (ids: string[]) => {
     if (ids.length === 0) return { error: null }
@@ -160,5 +190,5 @@ export function usePaletes() {
     return { error }
   }, [fetchPaletes])
 
-  return { paletes, loading, fetchPaletes, criarComDados, criarPool, vincular, atualizar, excluir, marcarImpressas, buscarPorCodigo }
+  return { paletes, loading, fetchPaletes, criarComDados, criarPool, vincular, atualizar, excluir, marcarImpressas, buscarPorCodigo, confirmarPosicao, registrarOcorrencia }
 }

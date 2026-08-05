@@ -9,6 +9,7 @@ import { fmtDate, fmtDateTime, semValidade, LABEL_SEM_VALIDADE } from '@/lib/uti
 import { usePerfílContext } from '@/lib/perfil-context'
 import { PaletesView } from '@/components/paletes/PaletesView'
 import { ConsultaView } from '@/components/paletes/ConsultaView'
+import { InspecaoView } from '@/components/paletes/InspecaoView'
 import type { Item } from '@/lib/types'
 
 // Dados mínimos para identificar um palete na etiqueta
@@ -41,7 +42,7 @@ function zonaVisual(validade: string) {
 }
 
 export default function PaletesPage() {
-  const [aba, setAba] = useState<'paletes' | 'consultar' | 'etiquetas'>('paletes')
+  const [aba, setAba] = useState<'paletes' | 'consultar' | 'inspecao' | 'etiquetas'>('paletes')
   const tab = (key: typeof aba, label: string) => (
     <button
       onClick={() => setAba(key)}
@@ -53,9 +54,13 @@ export default function PaletesPage() {
       <div className="flex gap-1 bg-gray-100 p-1 rounded-lg w-fit">
         {tab('paletes', 'Paletes (QR)')}
         {tab('consultar', 'Consultar (QR)')}
+        {tab('inspecao', 'Inspeção (QR)')}
         {tab('etiquetas', 'Etiquetas por item')}
       </div>
-      {aba === 'paletes' ? <PaletesView /> : aba === 'consultar' ? <ConsultaView /> : <EtiquetasView />}
+      {aba === 'paletes' ? <PaletesView />
+        : aba === 'consultar' ? <ConsultaView />
+        : aba === 'inspecao' ? <InspecaoView />
+        : <EtiquetasView />}
     </div>
   )
 }
