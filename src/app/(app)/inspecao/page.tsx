@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { QrScanner } from '@/components/qr/QrScanner'
 import { getZone, diasParaVencer } from '@/lib/zones'
-import { fmtDateTime, normalizarEndereco } from '@/lib/utils'
+import { fmtDate, fmtDateTime, normalizarEndereco } from '@/lib/utils'
 import { supabase } from '@/lib/supabase'
 import { useToast } from '@/components/layout/Toast'
 import { usePerfílContext } from '@/lib/perfil-context'
@@ -54,7 +54,7 @@ const novoItemVazio = {
 
 export default function InspecaoPage() {
   const { itens, loading, addItem } = useItens()
-  const { state, iniciar, retomar, buscarAbertas, cancelarAberta, confirmar, baixarEndereco, encerrar, reiniciar, registrarExtra } = useInspecao()
+  const { state, iniciar, iniciarQr, validarQr, retomar, buscarAbertas, cancelarAberta, confirmar, baixarEndereco, encerrar, reiniciar, registrarExtra } = useInspecao()
   const { toast } = useToast()
   const { can } = usePerfílContext()
 
@@ -70,7 +70,11 @@ export default function InspecaoPage() {
     return () => { ativo = false }
   }, [state.phase, buscarAbertas])
   const [responsavel, setResponsavel] = useState('')
-  const [qrAberto, setQrAberto] = useState(false)
+  // Inspeção por QR: card de confirmação temporário sobre a câmera (contínuo)
+  type QrCard = { tipo: 'ok' | 'erro' | 'dup'; sku?: string; descricao?: string; validade?: string; endereco?: string; msg?: string }
+  const [qrCard, setQrCard] = useState<QrCard | null>(null)
+  const qrTimerRef = useRef<number | null>(null)
+  const qrValidadosRef = useRef<Set<string>>(new Set())
   const [validadeEncontrada, setValidadeEncontrada] = useState('') // ISO YYYY-MM-DD
   const [validadeTexto, setValidadeTexto] = useState('')           // exibição DD/MM/AAAA
   const [obs, setObs] = useState('')
@@ -428,25 +432,49 @@ export default function InspecaoPage() {
     limparEstado()
   }
 
-  // Inicia a inspeção lendo o QR do item (código IT-000000) — atalho por leitura.
-  const iniciarPorQr = async (codigo: string) => {
-    setQrAberto(false)
-    const cod = codigo.trim()
-    if (!responsavel.trim()) { toast('Informe o responsável antes de ler o QR', 'info'); return }
-    const item = itens.find(i => i.codigo_qr === cod)
-    if (!item) { toast(`Nenhum item encontrado para o código ${cod}`, 'error'); return }
-    if (item.status !== 'ativo') { toast(`Item ${item.sku} não está ativo (${item.status})`, 'info'); return }
+  // Inicia a SESSÃO de inspeção por QR Code (validação contínua de paletes)
+  const iniciarInspecaoQr = async () => {
+    if (!responsavel.trim()) { toast('Informe o responsável primeiro', 'info'); return }
     if (abertaMesmoResp) { toast('Você já tem uma inspeção aberta — retome ou cancele antes de usar o QR', 'info'); return }
-    const entradas: EntradaFila[] = []
-    if (item.endereco_frac) entradas.push({ item, tipo: 'frac', endereco: item.endereco_frac })
-    if (item.endereco_gran) entradas.push({ item, tipo: 'gran', endereco: item.endereco_gran })
-    if (entradas.length === 0) { toast('Item sem endereço para inspecionar', 'info'); return }
     setIniciando(true)
-    const { error } = await iniciar(entradas, responsavel)
+    qrValidadosRef.current = new Set()
+    const { error } = await iniciarQr(responsavel)
     setIniciando(false)
-    if (error) toast('Erro ao iniciar inspeção — verifique a migration 005', 'error')
-    else { setAbertas([]); limparEstado() }
+    if (error) { toast('Erro ao iniciar inspeção por QR — verifique a migration 005', 'error'); return }
+    setAbertas([]); setQrCard(null)
   }
+
+  // Mostra o card de confirmação por um tempo e depois libera a próxima leitura
+  const mostrarQrCard = (card: QrCard, ms: number) => {
+    if (qrTimerRef.current) clearTimeout(qrTimerRef.current)
+    setQrCard(card)
+    qrTimerRef.current = window.setTimeout(() => { setQrCard(null); qrTimerRef.current = null }, ms)
+  }
+
+  // Cada leitura de QR na sessão contínua: valida a existência do palete
+  const handleQrScan = async (codigo: string) => {
+    if (state.phase !== 'qr' || qrCard) return
+    const cod = codigo.trim()
+    const item = itens.find(i => i.codigo_qr === cod)
+    if (!item) { mostrarQrCard({ tipo: 'erro', msg: `Palete não encontrado: ${cod}` }, 3500); return }
+    if (item.status !== 'ativo') { mostrarQrCard({ tipo: 'erro', sku: item.sku, msg: `Item não está ativo (${item.status})` }, 3500); return }
+    if (qrValidadosRef.current.has(item.id)) {
+      mostrarQrCard({ tipo: 'dup', sku: item.sku, descricao: item.descricao, msg: 'Palete já validado nesta inspeção' }, 3000)
+      return
+    }
+    const tipo: TipoEndereco = item.endereco_gran ? 'gran' : 'frac'
+    const endereco = item.endereco_gran || item.endereco_frac || '—'
+    qrValidadosRef.current.add(item.id)
+    mostrarQrCard({ tipo: 'ok', sku: item.sku, descricao: item.descricao, validade: item.validade, endereco }, 5000)
+    await validarQr(item, tipo, endereco)
+  }
+
+  // Limpa o timer do card ao sair da sessão de QR
+  useEffect(() => {
+    if (state.phase !== 'qr' && qrTimerRef.current) {
+      clearTimeout(qrTimerRef.current); qrTimerRef.current = null
+    }
+  }, [state.phase])
 
   const handleFoto = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -842,12 +870,13 @@ export default function InspecaoPage() {
         </div>
         <Button
           variant="secondary"
-          onClick={() => { if (!responsavel.trim()) { toast('Informe o responsável primeiro', 'info'); return } setQrAberto(true) }}
+          onClick={iniciarInspecaoQr}
+          disabled={iniciando}
           className="w-full justify-center py-2.5"
         >
-          📷 Iniciar por QR do item
+          📷 Iniciar Inspeção por QR (Pulmão)
         </Button>
-        <p className="text-[11px] text-center text-gray-400">Leia o QR da etiqueta para inspecionar aquele item direto.</p>
+        <p className="text-[11px] text-center text-gray-400">Leia os QR das etiquetas em sequência — cada palete é validado e a leitura segue sozinha.</p>
       </div>
 
       {/* Modal — o mesmo responsável já tem inspeção em aberto */}
@@ -878,10 +907,88 @@ export default function InspecaoPage() {
           </div>
         </div>
       </Modal>
-
-      <QrScanner open={qrAberto} onClose={() => setQrAberto(false)} onDetect={iniciarPorQr} title="Ler QR do item" />
     </div>
   )
+
+  // ── INSPEÇÃO POR QR CODE (validação contínua de paletes) ─────
+  if (state.phase === 'qr') {
+    const validados = state.resultados.length
+    const zonaCard = qrCard?.validade ? getZone(qrCard.validade) : null
+    return (
+      <>
+        <QrScanner
+          open
+          continuo
+          pausado={qrCard != null || confirmEncerrar}
+          onDetect={handleQrScan}
+          onClose={() => setConfirmEncerrar(true)}
+          title={`Inspeção por QR #${state.numero}`}
+          overlay={qrCard && (
+            <div className={`w-full h-full flex flex-col items-center justify-center gap-2 p-5 text-center ${
+              qrCard.tipo === 'ok' ? 'bg-green-600/95'
+              : qrCard.tipo === 'dup' ? 'bg-amber-500/95'
+              : 'bg-red-600/95'
+            }`}>
+              <div className="text-4xl">{qrCard.tipo === 'ok' ? '✓' : qrCard.tipo === 'dup' ? '⚠' : '✕'}</div>
+              <div className="text-white text-lg font-extrabold">
+                {qrCard.tipo === 'ok' ? 'Palete Validado' : qrCard.tipo === 'dup' ? 'Já validado' : 'Não validado'}
+              </div>
+              {qrCard.sku && (
+                <div className="text-white/95 font-mono text-2xl font-extrabold">{qrCard.sku}</div>
+              )}
+              {qrCard.descricao && (
+                <div className="text-white/90 text-sm leading-tight">{qrCard.descricao}</div>
+              )}
+              {qrCard.tipo === 'ok' && (
+                <>
+                  {qrCard.endereco && <div className="text-white/80 font-mono text-xs">{qrCard.endereco}</div>}
+                  <div className="mt-1 bg-white/95 rounded-lg px-3 py-1.5">
+                    <span className="text-[11px] text-gray-500 mr-2">Validade</span>
+                    <span className="font-mono font-bold" style={{ color: zonaCard?.color }}>
+                      {qrCard.validade ? fmtDate(qrCard.validade) : '—'}
+                    </span>
+                  </div>
+                </>
+              )}
+              {qrCard.msg && qrCard.tipo !== 'ok' && (
+                <div className="text-white/95 text-sm font-semibold">{qrCard.msg}</div>
+              )}
+              <div className="text-white/70 text-[11px] mt-1">seguindo para a próxima leitura…</div>
+            </div>
+          )}
+          footer={
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center justify-between text-xs text-gray-500">
+                <span><strong className="font-mono text-gray-800 text-sm">{validados}</strong> paletes validados</span>
+                <span className="truncate">{state.responsavel}</span>
+              </div>
+              <Button variant="danger" onClick={() => setConfirmEncerrar(true)} className="w-full justify-center py-3">
+                ■ Encerrar Inspeção
+              </Button>
+            </div>
+          }
+        />
+        <Modal open={confirmEncerrar} onClose={() => setConfirmEncerrar(false)} title="Encerrar Inspeção por QR">
+          <div className="flex flex-col gap-4">
+            <p className="text-sm text-gray-600">
+              Encerrar a <strong>Inspeção #{state.numero}</strong> por QR agora?
+            </p>
+            <div className="rounded-lg border border-green-100 bg-green-50 p-3">
+              <p className="text-xs text-green-700">
+                ✓ Os <strong>{validados} paletes validados</strong> já estão salvos — cada leitura é gravada na hora.
+              </p>
+            </div>
+            <div className="flex justify-end gap-3">
+              <Button variant="ghost" onClick={() => setConfirmEncerrar(false)} disabled={processing}>Voltar</Button>
+              <Button variant="danger" onClick={handleEncerrar} disabled={processing}>
+                {processing ? 'Encerrando…' : 'Encerrar e ver relatório'}
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      </>
+    )
+  }
 
   // ── TELA DE CONCLUSÃO ────────────────────────────────────────
   if (state.phase === 'done') return (

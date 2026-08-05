@@ -57,7 +57,7 @@ export interface InspecaoAberta {
 }
 
 export interface InspecaoState {
-  phase: 'idle' | 'active' | 'done'
+  phase: 'idle' | 'active' | 'qr' | 'done'
   inspecaoId: string | null
   numero: number | null
   iniciadaEm: string | null
@@ -358,6 +358,66 @@ export function useInspecao() {
     if (state.inspecaoId) await persistir(state.inspecaoId, state.atual, novosResultados, false)
   }
 
+  // Inspeção por QR Code: sessão de validação contínua de paletes (fila cresce a cada leitura)
+  const iniciarQr = async (responsavel: string) => {
+    const { data: { user } } = await supabase.auth.getUser()
+    const { data, error } = await supabase
+      .from('inspecoes')
+      .insert({ responsavel, fila: [], user_id: user!.id })
+      .select()
+      .single()
+    if (error || !data) return { error: error ?? new Error('insert failed') }
+
+    await supabase.from('historico').insert({
+      descricao: `Inspeção #${data.numero} por QR Code iniciada`,
+      responsavel,
+      user_id: user!.id,
+    })
+
+    setState({
+      phase: 'qr',
+      inspecaoId: data.id,
+      numero: data.numero,
+      iniciadaEm: data.iniciada_em,
+      responsavel,
+      fila: [],
+      atual: 0,
+      resultados: [],
+    })
+    return { error: null }
+  }
+
+  // Valida um palete lido por QR: marca inspeção no item, registra na timeline e no resultado.
+  // As informações do item já foram conferidas na entrada — aqui confirma-se a existência física.
+  const validarQr = async (item: Item, tipo: TipoEndereco, endereco: string) => {
+    const { data: { user } } = await supabase.auth.getUser()
+    const now = new Date().toISOString()
+
+    await supabase.from('itens').update({
+      ultima_inspecao: now,
+      inspecionado_por: state.responsavel,
+    }).eq('id', item.id)
+
+    const endLabel = tipo === 'frac' ? 'Picking' : 'Pulmão'
+    await supabase.from('historico').insert({
+      descricao: `Inspeção #${state.numero} (QR) ${endLabel}: ${item.sku} — ${endereco} · palete validado`,
+      responsavel: state.responsavel,
+      user_id: user!.id,
+    })
+
+    const resultado: Resultado = {
+      entrada: { item, tipo, endereco },
+      ok: true,
+      acao: 'ok',
+      validadeEncontrada: item.validade,
+      validadeAlterada: false,
+      obs: '',
+    }
+    const novosResultados = [...state.resultados, resultado]
+    if (state.inspecaoId) await persistir(state.inspecaoId, novosResultados.length, novosResultados, false)
+    setState(s => ({ ...s, resultados: novosResultados }))
+  }
+
   // Encerramento antecipado: conclui a inspeção salvando o que já foi coletado
   const encerrar = async () => {
     if (state.inspecaoId) {
@@ -366,8 +426,11 @@ export function useInspecao() {
         status: 'concluida',
         finalizada_em: new Date().toISOString(),
       }).eq('id', state.inspecaoId)
+      const msgEncerrar = state.phase === 'qr'
+        ? `Inspeção #${state.numero} por QR encerrada — ${state.resultados.length} paletes validados`
+        : `Inspeção #${state.numero} encerrada antecipadamente — ${state.resultados.length} de ${state.fila.length} endereços inspecionados`
       await supabase.from('historico').insert({
-        descricao: `Inspeção #${state.numero} encerrada antecipadamente — ${state.resultados.length} de ${state.fila.length} endereços inspecionados`,
+        descricao: msgEncerrar,
         responsavel: state.responsavel,
         user_id: user!.id,
       })
@@ -377,5 +440,5 @@ export function useInspecao() {
 
   const reiniciar = () => setState(initial)
 
-  return { state, iniciar, retomar, buscarAbertas, cancelarAberta, confirmar, baixarEndereco, encerrar, reiniciar, registrarExtra }
+  return { state, iniciar, iniciarQr, validarQr, retomar, buscarAbertas, cancelarAberta, confirmar, baixarEndereco, encerrar, reiniciar, registrarExtra }
 }

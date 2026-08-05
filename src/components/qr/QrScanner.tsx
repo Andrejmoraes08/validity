@@ -20,9 +20,20 @@ interface QrScannerProps {
   onClose: () => void
   onDetect: (code: string) => void
   title?: string
+  // Modo contínuo: não para na primeira leitura — segue lendo (inspeção por QR).
+  continuo?: boolean
+  // Em modo contínuo, pausa a detecção (ex.: enquanto mostra o card de confirmação).
+  pausado?: boolean
+  // Camada sobreposta à câmera (ex.: card "Palete Validado").
+  overlay?: React.ReactNode
+  // Rodapé fixo abaixo da câmera (ex.: contador + botão Encerrar).
+  footer?: React.ReactNode
 }
 
-export function QrScanner({ open, onClose, onDetect, title = 'Ler QR Code' }: QrScannerProps) {
+export function QrScanner({
+  open, onClose, onDetect, title = 'Ler QR Code',
+  continuo = false, pausado = false, overlay, footer,
+}: QrScannerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const loopRef = useRef<number | null>(null)
@@ -31,6 +42,12 @@ export function QrScanner({ open, onClose, onDetect, title = 'Ler QR Code' }: Qr
   // reiniciar a câmera (o efeito depende só de `open`).
   const onDetectRef = useRef(onDetect)
   onDetectRef.current = onDetect
+  // Estado atual de pausa/último código lidos pelo loop sem reiniciar a câmera
+  const pausadoRef = useRef(pausado)
+  pausadoRef.current = pausado
+  const continuoRef = useRef(continuo)
+  continuoRef.current = continuo
+  const ultimoCodigoRef = useRef<string | null>(null)
 
   const [erro, setErro] = useState<string | null>(null)
   const [suportado, setSuportado] = useState(true)
@@ -39,6 +56,7 @@ export function QrScanner({ open, onClose, onDetect, title = 'Ler QR Code' }: Qr
   useEffect(() => {
     if (!open) return
     jaDetectouRef.current = false
+    ultimoCodigoRef.current = null
     setErro(null)
     let cancelado = false
 
@@ -64,14 +82,28 @@ export function QrScanner({ open, onClose, onDetect, title = 'Ler QR Code' }: Qr
         await video.play()
 
         const tick = async () => {
-          if (cancelado || jaDetectouRef.current) return
+          if (cancelado) return
+          if (!continuoRef.current && jaDetectouRef.current) return
           try {
-            const codes = await detector.detect(video)
-            if (codes.length > 0 && codes[0].rawValue) {
-              jaDetectouRef.current = true
-              try { navigator.vibrate?.(150) } catch { /* sem vibração */ }
-              onDetectRef.current(codes[0].rawValue.trim())
-              return
+            // Em modo contínuo, mantém a câmera viva mas não lê enquanto pausado
+            if (!(continuoRef.current && pausadoRef.current)) {
+              const codes = await detector.detect(video)
+              const val = codes[0]?.rawValue?.trim()
+              if (val) {
+                if (continuoRef.current) {
+                  // Só emite um código novo (evita re-disparar o mesmo palete em vista)
+                  if (val !== ultimoCodigoRef.current) {
+                    ultimoCodigoRef.current = val
+                    try { navigator.vibrate?.(120) } catch { /* sem vibração */ }
+                    onDetectRef.current(val)
+                  }
+                } else {
+                  jaDetectouRef.current = true
+                  try { navigator.vibrate?.(150) } catch { /* sem vibração */ }
+                  onDetectRef.current(val)
+                  return
+                }
+              }
             }
           } catch {
             // falha pontual de frame — ignora e continua
@@ -123,8 +155,10 @@ export function QrScanner({ open, onClose, onDetect, title = 'Ler QR Code' }: Qr
                 <div className="w-2/3 aspect-square border-2 border-white/80 rounded-lg shadow-[0_0_0_9999px_rgba(0,0,0,0.35)]" />
               </div>
               <p className="absolute bottom-2 inset-x-0 text-center text-white/90 text-xs">
-                Aponte a câmera para o QR do palete
+                Aponte a câmera para o QR da etiqueta do item
               </p>
+              {/* Camada sobreposta (card de confirmação no modo contínuo) */}
+              {overlay && <div className="absolute inset-0">{overlay}</div>}
             </div>
           )}
 
@@ -147,12 +181,14 @@ export function QrScanner({ open, onClose, onDetect, title = 'Ler QR Code' }: Qr
                 value={manual}
                 onChange={e => setManual(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter') enviarManual() }}
-                placeholder="PAL-000123"
+                placeholder="IT-000123"
                 className="border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono flex-1 focus:outline-none focus:border-blue-500"
               />
               <Button variant="primary" onClick={enviarManual}>Buscar</Button>
             </div>
           </div>
+
+          {footer}
         </div>
       </div>
     </div>

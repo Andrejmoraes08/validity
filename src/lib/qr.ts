@@ -1,5 +1,6 @@
 // Geração de QR Code como data URL (para preview HTML e para embutir no PDF A4).
-// A impressão na Zebra usa o QR nativo do ZPL (^BQ) e não passa por aqui.
+// A etiqueta do item é impressa em A4 (jsPDF) usando este data URL — o QR
+// carrega o código do item (codigo_qr, ex.: IT-000123) para leitura na inspeção.
 import QRCode from 'qrcode'
 
 export async function qrDataUrl(texto: string, size = 240): Promise<string> {
