@@ -62,6 +62,42 @@ export interface Config {
   updated_at: string
 }
 
+// ─── Módulo QR Code (paletes / LPN) — foco no PULMÃO ────────────────────────
+export type PaleteStatus = 'vazio' | 'ativo' | 'movimentando' | 'baixado'
+
+export interface Palete {
+  id: string
+  lpn: number
+  codigo: string
+  sku?: string
+  descricao?: string
+  lote?: string
+  quantidade?: number
+  validade?: string
+  endereco_atual: string
+  status: PaleteStatus
+  item_id?: string
+  impressa_em?: string
+  vinculado_em?: string
+  vinculado_por?: string
+  ultima_leitura?: string
+  observacao?: string
+  created_at: string
+  updated_at: string
+  user_id: string
+}
+
+export interface Movimentacao {
+  id: string
+  palete_id: string
+  codigo: string
+  origem: string
+  destino: string
+  responsavel: string
+  created_at: string
+  user_id: string
+}
+
 export type ZoneName = 'vencido' | 'vermelho' | 'amarelo' | 'verde' | 'azul'
 
 export interface ZoneInfo {

@@ -7,6 +7,7 @@ import { useToast } from '@/components/layout/Toast'
 import { diasParaVencer, getZone } from '@/lib/zones'
 import { fmtDate, fmtDateTime, semValidade, LABEL_SEM_VALIDADE } from '@/lib/utils'
 import { usePerfílContext } from '@/lib/perfil-context'
+import { PaletesView } from '@/components/paletes/PaletesView'
 import type { Item } from '@/lib/types'
 
 // Dados mínimos para identificar um palete na etiqueta
@@ -39,6 +40,25 @@ function zonaVisual(validade: string) {
 }
 
 export default function PaletesPage() {
+  const [aba, setAba] = useState<'paletes' | 'etiquetas'>('paletes')
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex gap-1 bg-gray-100 p-1 rounded-lg w-fit">
+        <button
+          onClick={() => setAba('paletes')}
+          className={`px-4 py-1.5 text-sm font-semibold rounded-md transition-colors ${aba === 'paletes' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+        >Paletes (QR)</button>
+        <button
+          onClick={() => setAba('etiquetas')}
+          className={`px-4 py-1.5 text-sm font-semibold rounded-md transition-colors ${aba === 'etiquetas' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+        >Etiquetas por item</button>
+      </div>
+      {aba === 'paletes' ? <PaletesView /> : <EtiquetasView />}
+    </div>
+  )
+}
+
+function EtiquetasView() {
   const { itens, loading } = useItens()
   const { toast } = useToast()
   const { perfil } = usePerfílContext()
