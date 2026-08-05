@@ -17,7 +17,7 @@ import type { PaleteDados } from '@/hooks/usePaletes'
 
 export function PaletesView() {
   const { itens } = useItens()
-  const { paletes, loading, criarComDados, criarPool, vincular, excluir, marcarImpressas } = usePaletes()
+  const { paletes, loading, criarComDados, criarPool, vincular, atualizar, excluir, marcarImpressas } = usePaletes()
   const { toast } = useToast()
   const { perfil } = usePerfílContext()
   const responsavel = perfil?.nome?.trim() || perfil?.email || 'sistema'
@@ -103,9 +103,26 @@ export function PaletesView() {
 
   const handleSalvar = async (dados: PaleteDados) => {
     if (emEdicao) {
-      const { error } = await vincular(emEdicao.id, dados, responsavel)
-      if (error) { toast('Erro ao salvar o palete', 'error'); return }
-      toast(emEdicao.status === 'vazio' ? 'Etiqueta vinculada ao palete' : 'Palete atualizado')
+      if (emEdicao.status === 'vazio') {
+        // Primeira vinculação da etiqueta em branco → registra autor/data do vínculo
+        const { error } = await vincular(emEdicao.id, dados, responsavel)
+        if (error) { toast('Erro ao salvar o palete', 'error'); return }
+        toast('Etiqueta vinculada ao palete')
+      } else {
+        // Edição de palete já vinculado → preserva status e o autor/data original do vínculo
+        const { error } = await atualizar(emEdicao.id, {
+          sku: dados.sku ?? null,
+          descricao: dados.descricao ?? null,
+          lote: dados.lote ?? null,
+          quantidade: dados.quantidade ?? null,
+          validade: dados.validade || null,
+          endereco_atual: dados.endereco_atual ?? '',
+          item_id: dados.item_id ?? null,
+          observacao: dados.observacao ?? null,
+        })
+        if (error) { toast('Erro ao salvar o palete', 'error'); return }
+        toast('Palete atualizado')
+      }
     } else {
       const { error, palete } = await criarComDados(dados, responsavel)
       if (error) { toast('Erro ao criar o palete', 'error'); return }

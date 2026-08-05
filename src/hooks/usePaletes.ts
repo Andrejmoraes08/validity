@@ -128,7 +128,10 @@ export function usePaletes() {
     return { error }
   }, [fetchPaletes])
 
-  const atualizar = useCallback(async (id: string, updates: Partial<Palete>) => {
+  // Atualização parcial genérica. Usada na EDIÇÃO de palete já vinculado:
+  // altera só os campos passados, preservando status e vinculado_em/vinculado_por
+  // (o autor/data original do vínculo permanece registrado).
+  const atualizar = useCallback(async (id: string, updates: Record<string, unknown>) => {
     const { error } = await supabase.from('paletes').update(updates).eq('id', id)
     if (!error) await fetchPaletes()
     return { error }

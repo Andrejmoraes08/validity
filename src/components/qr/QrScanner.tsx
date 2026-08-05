@@ -27,6 +27,10 @@ export function QrScanner({ open, onClose, onDetect, title = 'Ler QR Code' }: Qr
   const streamRef = useRef<MediaStream | null>(null)
   const loopRef = useRef<number | null>(null)
   const jaDetectouRef = useRef(false)
+  // onDetect é recriado a cada render do pai; guardamos num ref para não
+  // reiniciar a câmera (o efeito depende só de `open`).
+  const onDetectRef = useRef(onDetect)
+  onDetectRef.current = onDetect
 
   const [erro, setErro] = useState<string | null>(null)
   const [suportado, setSuportado] = useState(true)
@@ -66,7 +70,7 @@ export function QrScanner({ open, onClose, onDetect, title = 'Ler QR Code' }: Qr
             if (codes.length > 0 && codes[0].rawValue) {
               jaDetectouRef.current = true
               try { navigator.vibrate?.(150) } catch { /* sem vibração */ }
-              onDetect(codes[0].rawValue.trim())
+              onDetectRef.current(codes[0].rawValue.trim())
               return
             }
           } catch {
@@ -90,7 +94,7 @@ export function QrScanner({ open, onClose, onDetect, title = 'Ler QR Code' }: Qr
       streamRef.current?.getTracks().forEach(t => t.stop())
       streamRef.current = null
     }
-  }, [open, onDetect])
+  }, [open])
 
   const enviarManual = () => {
     const v = manual.trim()

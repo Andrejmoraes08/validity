@@ -425,7 +425,7 @@ function EtiquetasView() {
           )}
           <p className="text-[11px] text-gray-400 leading-relaxed">
             Clique numa linha para pré-visualizar. Marque os itens e use <strong>Gerar etiquetas</strong> para
-            um PDF com uma etiqueta por página. O espaço à direita é reservado para o <strong>QR Code de validação</strong> (em breve).
+            um PDF com uma etiqueta por página. O <strong>QR Code do palete</strong> é gerado e impresso na aba <strong>Paletes (QR)</strong> (etiqueta Zebra 100×40).
           </p>
         </div>
       </div>
@@ -480,7 +480,7 @@ function LabelPreview({ data, responsavel }: { data: PaleteData; responsavel: st
               <span className="text-gray-400 font-bold uppercase" style={{ fontSize: 'clamp(6px,1.1vw,9px)' }}>QR</span>
             </div>
             <p className="text-gray-400 text-center mt-1 leading-tight" style={{ fontSize: 'clamp(5px,0.9vw,8px)' }}>
-              validação (futuro)
+              QR na etiqueta Zebra
             </p>
           </div>
         </div>
@@ -559,7 +559,7 @@ function desenharEtiqueta(doc: Doc, d: PaleteData, idx: number, total: number, r
   doc.setFont('helvetica', 'bold'); doc.setFontSize(8); doc.setTextColor(150, 156, 165)
   doc.text('QR', qx + qs / 2, qy + qs / 2 + 1, { align: 'center' })
   doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(...GRAY)
-  const cap = doc.splitTextToSize('QR de validação (futuro)', qs)
+  const cap = doc.splitTextToSize('QR na etiqueta Zebra', qs)
   doc.text(cap, qx + qs / 2, qy + qs + 5, { align: 'center' })
 
   // SKU (destaque principal)
