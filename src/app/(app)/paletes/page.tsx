@@ -7,6 +7,10 @@ import { useToast } from '@/components/layout/Toast'
 import { diasParaVencer, getZone } from '@/lib/zones'
 import { fmtDate, fmtDateTime, semValidade, LABEL_SEM_VALIDADE } from '@/lib/utils'
 import { usePerfílContext } from '@/lib/perfil-context'
+import { PaletesView } from '@/components/paletes/PaletesView'
+import { ConsultaView } from '@/components/paletes/ConsultaView'
+import { InspecaoView } from '@/components/paletes/InspecaoView'
+import { MovimentacaoView } from '@/components/paletes/MovimentacaoView'
 import type { Item } from '@/lib/types'
 
 // Dados mínimos para identificar um palete na etiqueta
@@ -39,6 +43,32 @@ function zonaVisual(validade: string) {
 }
 
 export default function PaletesPage() {
+  const [aba, setAba] = useState<'paletes' | 'consultar' | 'inspecao' | 'movimentacao' | 'etiquetas'>('paletes')
+  const tab = (key: typeof aba, label: string) => (
+    <button
+      onClick={() => setAba(key)}
+      className={`px-4 py-1.5 text-sm font-semibold rounded-md transition-colors ${aba === key ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+    >{label}</button>
+  )
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex gap-1 bg-gray-100 p-1 rounded-lg w-fit">
+        {tab('paletes', 'Paletes (QR)')}
+        {tab('consultar', 'Consultar (QR)')}
+        {tab('inspecao', 'Inspeção (QR)')}
+        {tab('movimentacao', 'Movimentação')}
+        {tab('etiquetas', 'Etiquetas por item')}
+      </div>
+      {aba === 'paletes' ? <PaletesView />
+        : aba === 'consultar' ? <ConsultaView />
+        : aba === 'inspecao' ? <InspecaoView />
+        : aba === 'movimentacao' ? <MovimentacaoView />
+        : <EtiquetasView />}
+    </div>
+  )
+}
+
+function EtiquetasView() {
   const { itens, loading } = useItens()
   const { toast } = useToast()
   const { perfil } = usePerfílContext()
@@ -395,7 +425,7 @@ export default function PaletesPage() {
           )}
           <p className="text-[11px] text-gray-400 leading-relaxed">
             Clique numa linha para pré-visualizar. Marque os itens e use <strong>Gerar etiquetas</strong> para
-            um PDF com uma etiqueta por página. O espaço à direita é reservado para o <strong>QR Code de validação</strong> (em breve).
+            um PDF com uma etiqueta por página. O <strong>QR Code do palete</strong> é gerado e impresso na aba <strong>Paletes (QR)</strong> (etiqueta Zebra 100×40).
           </p>
         </div>
       </div>
@@ -450,7 +480,7 @@ function LabelPreview({ data, responsavel }: { data: PaleteData; responsavel: st
               <span className="text-gray-400 font-bold uppercase" style={{ fontSize: 'clamp(6px,1.1vw,9px)' }}>QR</span>
             </div>
             <p className="text-gray-400 text-center mt-1 leading-tight" style={{ fontSize: 'clamp(5px,0.9vw,8px)' }}>
-              validação (futuro)
+              QR na etiqueta Zebra
             </p>
           </div>
         </div>
@@ -529,7 +559,7 @@ function desenharEtiqueta(doc: Doc, d: PaleteData, idx: number, total: number, r
   doc.setFont('helvetica', 'bold'); doc.setFontSize(8); doc.setTextColor(150, 156, 165)
   doc.text('QR', qx + qs / 2, qy + qs / 2 + 1, { align: 'center' })
   doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(...GRAY)
-  const cap = doc.splitTextToSize('QR de validação (futuro)', qs)
+  const cap = doc.splitTextToSize('QR na etiqueta Zebra', qs)
   doc.text(cap, qx + qs / 2, qy + qs + 5, { align: 'center' })
 
   // SKU (destaque principal)
