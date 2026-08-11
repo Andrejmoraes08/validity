@@ -20,7 +20,9 @@ export default function WmsPage() {
   const [loading, setLoading] = useState(false)
   const [progresso, setProgresso] = useState<{ atual: number; total: number } | null>(null)
 
-  function excelSerialToISO(v: unknown): string | null {
+  // mdy=true interpreta datas com barra/traço como Mês/Dia/Ano (padrão americano,
+  // ex.: planilha "Validades" com coluna ValidadeTransPallet "7/26/27" = 26/07/2027).
+  function excelSerialToISO(v: unknown, mdy = false): string | null {
     if (v === null || v === undefined || v === '') return null
 
     // Date object (algumas leituras do xlsx retornam Date)
@@ -40,20 +42,23 @@ export default function WmsPage() {
 
     const s = String(v).trim()
 
-    // DD/MM/AAAA ou D/M/AA — com ou sem hora depois
+    // DD/MM/AAAA (ou M/D/AA se mdy) — com ou sem hora depois
     let m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})(\s.*)?$/)
     if (m) {
-      const dia = m[1].padStart(2, '0')
-      const mes = m[2].padStart(2, '0')
+      const dia = (mdy ? m[2] : m[1]).padStart(2, '0')
+      const mes = (mdy ? m[1] : m[2]).padStart(2, '0')
       const ano = m[3].length === 2 ? `20${m[3]}` : m[3]
       const iso = `${ano}-${mes}-${dia}`
       return isNaN(new Date(iso).getTime()) ? null : iso
     }
 
-    // DD-MM-AAAA
-    m = s.match(/^(\d{1,2})-(\d{1,2})-(\d{4})(\s.*)?$/)
+    // DD-MM-AAAA (ou M-D-AAAA se mdy)
+    m = s.match(/^(\d{1,2})-(\d{1,2})-(\d{2,4})(\s.*)?$/)
     if (m) {
-      const iso = `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`
+      const dia = (mdy ? m[2] : m[1]).padStart(2, '0')
+      const mes = (mdy ? m[1] : m[2]).padStart(2, '0')
+      const ano = m[3].length === 2 ? `20${m[3]}` : m[3]
+      const iso = `${ano}-${mes}-${dia}`
       return isNaN(new Date(iso).getTime()) ? null : iso
     }
 
@@ -98,6 +103,13 @@ export default function WmsPage() {
       return key !== undefined ? r[key] : undefined
     }
 
+    // Layout "TransPallet" (planilha Validades): coluna única "Endereco" separada
+    // por pontos (04.101.02.000), "ValidadeTransPallet" em M/D/AA e "Produto".
+    // O formato padrão usa colunas Rua/Predio/Nivel — na dúvida, ele prevalece.
+    const layoutTransPallet =
+      headerMap.has(normCol('ValidadeTransPallet')) ||
+      (headerMap.has(normCol('Endereco')) && !headerMap.has(normCol('Rua')))
+
     let atualizados = 0, criados = 0, erros = 0, ignoradas = 0, semValidade = 0, excluidos = 0
     let exemploInvalido = ''
     let linha = 0
@@ -107,20 +119,36 @@ export default function WmsPage() {
       linha++
       setProgresso({ atual: linha, total: rows.length })
       const sku = String(col(r, 'idProduto') ?? '').trim()
-      const descricao = String(col(r, 'Descricao') ?? '').trim()
-      const rua = String(col(r, 'Rua') ?? '').trim()
-      const predio = String(col(r, 'Predio') ?? '').trim()
-      const nivel = String(col(r, 'Nivel') ?? '').trim()
-      const apto = String(col(r, 'Apartamento') ?? '').trim()
+
       // Quantidade: célula vazia é desconsiderada (mantém saldo do sistema);
       // valor presente é aplicado, negativo vira zero.
       const qtdeCell = col(r, 'Qtde')
       const qtdeVazia = qtdeCell === '' || qtdeCell === null || qtdeCell === undefined
       const qtdeNum = Number(qtdeCell)
       const quantidade = qtdeVazia || isNaN(qtdeNum) ? null : Math.max(0, qtdeNum)
-      const validadeRaw = col(r, 'validade') || col(r, 'ValidadeNova')
-      const validadeISO = excelSerialToISO(validadeRaw)
-      const endereco = fmtEnd(rua, predio, nivel, apto)
+
+      let descricao: string, endereco: string, nivel: string
+      let validadeRaw: unknown, validadeISO: string | null
+
+      if (layoutTransPallet) {
+        // Produto + Endereco (04.101.02.000) + ValidadeTransPallet (M/D/AA)
+        descricao = String(col(r, 'Produto') ?? col(r, 'Descricao') ?? '').trim()
+        const p = String(col(r, 'Endereco') ?? '').trim().split(/[.\-]/)
+        nivel = String(p[2] ?? '').replace(/^0+(?=\d)/, '').trim()
+        endereco = fmtEnd(p[0], p[1], p[2], p[3])
+        validadeRaw = col(r, 'ValidadeTransPallet')
+        validadeISO = excelSerialToISO(validadeRaw, true)
+      } else {
+        // Layout padrão: colunas Rua/Predio/Nivel/Apartamento + validade DD/MM/AAAA
+        descricao = String(col(r, 'Descricao') ?? col(r, 'Produto') ?? '').trim()
+        const rua = String(col(r, 'Rua') ?? '').trim()
+        const predio = String(col(r, 'Predio') ?? '').trim()
+        nivel = String(col(r, 'Nivel') ?? '').trim()
+        const apto = String(col(r, 'Apartamento') ?? '').trim()
+        endereco = fmtEnd(rua, predio, nivel, apto)
+        validadeRaw = col(r, 'validade') || col(r, 'ValidadeNova')
+        validadeISO = excelSerialToISO(validadeRaw)
+      }
       const isPicking = (nivel || '0') === '0'
 
       if (!sku || !endereco) { ignoradas++; continue }
@@ -192,14 +220,24 @@ export default function WmsPage() {
           </p>
         </div>
         <div className="p-6 flex flex-col gap-5">
-          <div className="rounded-lg border border-gray-100 bg-gray-50 p-4 flex flex-col gap-2">
-            <p className="text-xs font-semibold text-gray-600">Arquivo esperado: <span className="font-mono font-bold">Validades WMS.xls</span></p>
-            <div className="grid grid-cols-2 gap-1 text-[11px] text-gray-500 font-mono">
-              <span>· idProduto</span><span>· Descricao</span>
-              <span>· Rua</span><span>· Predio</span>
-              <span>· Nivel</span><span>· Apartamento</span>
-              <span>· Qtde</span><span>· ValidadeNova</span>
+          <div className="rounded-lg border border-gray-100 bg-gray-50 p-4 flex flex-col gap-3">
+            <div className="flex flex-col gap-1">
+              <p className="text-xs font-semibold text-gray-600">Formato 1 — <span className="font-mono font-bold">Validades WMS.xls</span></p>
+              <div className="grid grid-cols-2 gap-1 text-[11px] text-gray-500 font-mono">
+                <span>· idProduto</span><span>· Descricao</span>
+                <span>· Rua</span><span>· Predio</span>
+                <span>· Nivel</span><span>· Apartamento</span>
+                <span>· Qtde</span><span>· ValidadeNova</span>
+              </div>
             </div>
+            <div className="flex flex-col gap-1 border-t border-gray-200 pt-3">
+              <p className="text-xs font-semibold text-gray-600">Formato 2 — <span className="font-mono font-bold">Validades.xls</span> <span className="font-normal text-gray-400">(pulmão)</span></p>
+              <div className="grid grid-cols-2 gap-1 text-[11px] text-gray-500 font-mono">
+                <span>· idProduto</span><span>· Produto</span>
+                <span>· Endereco <span className="text-gray-400">(04.101.02.000)</span></span><span>· ValidadeTransPallet</span>
+              </div>
+            </div>
+            <p className="text-[11px] text-gray-400">O sistema detecta o formato automaticamente pelo cabeçalho.</p>
           </div>
 
           <input ref={valRef} type="file" accept=".xls,.xlsx" onChange={processarValidades} className="hidden" />
