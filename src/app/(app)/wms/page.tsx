@@ -3,9 +3,39 @@ import { useRef, useState } from 'react'
 import { useItens } from '@/hooks/useItens'
 import { useToast } from '@/components/layout/Toast'
 import { Button } from '@/components/ui/Button'
+import { Modal } from '@/components/ui/Modal'
 import { supabase } from '@/lib/supabase'
-import { semControleValidade } from '@/lib/utils'
+import { semControleValidade, fmtDate } from '@/lib/utils'
 import { usePerfílContext } from '@/lib/perfil-context'
+
+// Resolução de um conflito de endereço escolhida pelo usuário
+type ResolucaoTipo = 'ambos' | 'excluir_existente' | 'descartar'
+
+// Item ativo já cadastrado (campos usados na análise de ocupação)
+interface ItemLite {
+  id: string; sku: string; descricao: string
+  endereco_frac: string; endereco_gran: string; quantidade: number; validade: string
+}
+
+// Item candidato vindo da planilha
+interface Incoming {
+  sku: string; descricao: string; endereco: string; isPicking: boolean
+  quantidade: number | null; validadeISO: string | null
+}
+
+// Endereço já ocupado por produto(s) diferente(s)
+interface Conflito {
+  id: string
+  incoming: Incoming
+  existentes: { id: string; sku: string; descricao: string; endereco: string; quantidade: number; validade: string }[]
+}
+
+interface Plano {
+  criar: Incoming[]
+  atualizar: { id: string; quantidade: number | null; validadeISO: string | null }[]
+  conflitos: Conflito[]
+  ignoradas: number; excluidos: number; semValidade: number; exemploInvalido: string; total: number
+}
 
 export default function WmsPage() {
   const { fetchItens } = useItens()
@@ -16,9 +46,13 @@ export default function WmsPage() {
   const [status, setStatus] = useState<{
     atualizados: number; criados: number; erros: number; ignoradas: number
     semValidade: number; excluidos: number; exemploInvalido: string; total: number
+    conflitos: number; excluidosConflito: number
   } | null>(null)
   const [loading, setLoading] = useState(false)
   const [progresso, setProgresso] = useState<{ atual: number; total: number } | null>(null)
+  // Plano pendente de aplicação quando há conflitos de endereço a resolver
+  const [plano, setPlano] = useState<Plano | null>(null)
+  const [resolucoes, setResolucoes] = useState<Record<string, ResolucaoTipo>>({})
 
   // mdy=true interpreta datas com barra/traço como Mês/Dia/Ano (padrão americano,
   // ex.: planilha "Validades" com coluna ValidadeTransPallet "7/26/27" = 26/07/2027).
@@ -84,16 +118,100 @@ export default function WmsPage() {
     return s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, '')
   }
 
+  // Carrega os itens que OCUPAM endereço (todos menos os baixados), paginado.
+  const carregarOcupacao = async (): Promise<ItemLite[]> => {
+    const todos: ItemLite[] = []
+    const pag = 1000
+    for (let off = 0; ; off += pag) {
+      const { data, error } = await supabase
+        .from('itens')
+        .select('id,sku,descricao,endereco_frac,endereco_gran,quantidade,validade')
+        .neq('status', 'baixado')
+        .range(off, off + pag - 1)
+      if (error || !data) break
+      todos.push(...(data as ItemLite[]))
+      if (data.length < pag) break
+    }
+    return todos
+  }
+
+  // Executa o plano (atualizações, criações e resoluções de conflito)
+  const aplicarPlano = async (p: Plano, resol: Record<string, ResolucaoTipo>) => {
+    setLoading(true)
+    setPlano(null)
+    const { data: { user } } = await supabase.auth.getUser()
+
+    const inserir = async (c: Incoming) =>
+      (await supabase.from('itens').insert({
+        sku: c.sku, descricao: c.descricao || '(sem descrição)', lote: 'S/L',
+        endereco_frac: c.isPicking ? c.endereco : '',
+        endereco_gran: c.isPicking ? '' : c.endereco,
+        quantidade: c.quantidade ?? 0, validade: c.validadeISO ?? '9999-12-31',
+        status: 'ativo', user_id: user!.id,
+      })).error
+
+    let atualizados = 0, criados = 0, excluidosConflito = 0, erros = 0
+    const totalOps = p.atualizar.length + p.criar.length + p.conflitos.length
+    let done = 0
+    setProgresso({ atual: 0, total: totalOps })
+
+    // Mesmo produto no mesmo endereço → só quantidade e validade
+    for (const u of p.atualizar) {
+      const { error } = await supabase.from('itens').update({
+        ...(u.quantidade !== null ? { quantidade: u.quantidade } : {}),
+        ...(u.validadeISO ? { validade: u.validadeISO } : {}),
+      }).eq('id', u.id)
+      if (error) { erros++ } else { atualizados++ }
+      setProgresso({ atual: ++done, total: totalOps })
+    }
+    // Endereços livres → cria
+    for (const c of p.criar) {
+      const error = await inserir(c)
+      if (error) { erros++ } else { criados++ }
+      setProgresso({ atual: ++done, total: totalOps })
+    }
+    // Conflitos → conforme a decisão do usuário
+    for (const cf of p.conflitos) {
+      const res = resol[cf.id] ?? 'descartar'
+      if (res !== 'descartar') {
+        if (res === 'excluir_existente') {
+          for (const ex of cf.existentes) {
+            const { error } = await supabase.from('itens').delete().eq('id', ex.id)
+            if (error) { erros++ } else { excluidosConflito++ }
+          }
+        }
+        // 'ambos' e 'excluir_existente' inserem o item novo
+        const error = await inserir(cf.incoming)
+        if (error) { erros++ } else { criados++ }
+      }
+      setProgresso({ atual: ++done, total: totalOps })
+    }
+
+    await supabase.from('historico').insert({
+      descricao: `Importação: ${p.total} linhas — ${atualizados} atualizados, ${criados} criados${excluidosConflito ? `, ${excluidosConflito} excluídos (conflito)` : ''}, ${p.conflitos.length} conflitos, ${p.excluidos} fora do controle, ${p.ignoradas} ignoradas, ${p.semValidade} sem validade, ${erros} erros`,
+      responsavel: user!.email ?? 'sistema',
+      user_id: user!.id,
+    })
+
+    setStatus({ atualizados, criados, erros, ignoradas: p.ignoradas, semValidade: p.semValidade, excluidos: p.excluidos, exemploInvalido: p.exemploInvalido, total: p.total, conflitos: p.conflitos.length, excluidosConflito })
+    setProgresso(null)
+    setLoading(false)
+    fetchItens()
+    toast(`Importação concluída: ${atualizados} atualizados, ${criados} criados`)
+    if (valRef.current) valRef.current.value = ''
+  }
+
   const processarValidades = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
     setLoading(true)
     setStatus(null)
+    setPlano(null)
 
     const { read, utils } = await import('xlsx')
     const buf = await file.arrayBuffer()
-    const rows = utils.sheet_to_json<Record<string, unknown>>(read(buf).Sheets[read(buf).SheetNames[0]], { defval: '' })
-    const { data: { user } } = await supabase.auth.getUser()
+    const wb = read(buf)
+    const rows = utils.sheet_to_json<Record<string, unknown>>(wb.Sheets[wb.SheetNames[0]], { defval: '' })
 
     // Mapa de cabeçalhos normalizado — aceita "Descrição", "descricao", "DESCRICAO" etc.
     const headerMap = new Map<string, string>()
@@ -109,20 +227,31 @@ export default function WmsPage() {
     const layoutTransPallet =
       headerMap.has(normCol('ValidadeTransPallet')) ||
       (headerMap.has(normCol('Endereco')) && !headerMap.has(normCol('Rua')))
+    // Coluna de quantidade — aceita Qtde, Qtd ou Quantidade
+    const qtdCol = ['Qtde', 'Qtd', 'Quantidade'].find(n => headerMap.has(normCol(n)))
 
-    let atualizados = 0, criados = 0, erros = 0, ignoradas = 0, semValidade = 0, excluidos = 0
-    let exemploInvalido = ''
-    let linha = 0
-    setProgresso({ atual: 0, total: rows.length })
+    // Índice de ocupação: endereço → itens que ocupam a posição
+    const atuais = await carregarOcupacao()
+    const porEndereco = new Map<string, ItemLite[]>()
+    for (const it of atuais) {
+      for (const e2 of [it.endereco_frac, it.endereco_gran]) {
+        if (e2 && String(e2).trim()) {
+          const a = porEndereco.get(e2) ?? []
+          a.push(it); porEndereco.set(e2, a)
+        }
+      }
+    }
+
+    const criar: Incoming[] = []
+    const atualizar: Plano['atualizar'] = []
+    const conflitos: Conflito[] = []
+    let ignoradas = 0, excluidos = 0, semValidade = 0, exemploInvalido = ''
 
     for (const r of rows) {
-      linha++
-      setProgresso({ atual: linha, total: rows.length })
       const sku = String(col(r, 'idProduto') ?? '').trim()
 
-      // Quantidade: célula vazia é desconsiderada (mantém saldo do sistema);
-      // valor presente é aplicado, negativo vira zero.
-      const qtdeCell = col(r, 'Qtde')
+      // Quantidade: célula vazia é desconsiderada (mantém saldo); negativo vira zero.
+      const qtdeCell = qtdCol ? col(r, qtdCol) : undefined
       const qtdeVazia = qtdeCell === '' || qtdeCell === null || qtdeCell === undefined
       const qtdeNum = Number(qtdeCell)
       const quantidade = qtdeVazia || isNaN(qtdeNum) ? null : Math.max(0, qtdeNum)
@@ -131,7 +260,6 @@ export default function WmsPage() {
       let validadeRaw: unknown, validadeISO: string | null
 
       if (layoutTransPallet) {
-        // Produto + Endereco (04.101.02.000) + ValidadeTransPallet (M/D/AA)
         descricao = String(col(r, 'Produto') ?? col(r, 'Descricao') ?? '').trim()
         const p = String(col(r, 'Endereco') ?? '').trim().split(/[.\-]/)
         nivel = String(p[2] ?? '').replace(/^0+(?=\d)/, '').trim()
@@ -139,7 +267,6 @@ export default function WmsPage() {
         validadeRaw = col(r, 'ValidadeTransPallet')
         validadeISO = excelSerialToISO(validadeRaw, true)
       } else {
-        // Layout padrão: colunas Rua/Predio/Nivel/Apartamento + validade DD/MM/AAAA
         descricao = String(col(r, 'Descricao') ?? col(r, 'Produto') ?? '').trim()
         const rua = String(col(r, 'Rua') ?? '').trim()
         const predio = String(col(r, 'Predio') ?? '').trim()
@@ -152,57 +279,56 @@ export default function WmsPage() {
       const isPicking = (nivel || '0') === '0'
 
       if (!sku || !endereco) { ignoradas++; continue }
-
-      // Bebidas de validade indeterminada (destilados/afins): não entram no controle
-      // via importação. A inspeção continua livre para registrar qualquer item.
       if (semControleValidade(descricao)) { excluidos++; continue }
-
       if (!validadeISO) {
         semValidade++
         const raw = String(validadeRaw ?? '').trim()
         if (!exemploInvalido && raw) exemploInvalido = raw
       }
 
-      const { data: existentes } = await supabase
-        .from('itens')
-        .select('id')
-        .eq('sku', sku)
-        .or(`endereco_frac.eq.${endereco},endereco_gran.eq.${endereco}`)
-        .limit(1)
+      const ocupantes = porEndereco.get(endereco) ?? []
+      const mesmo = ocupantes.find(o => o.sku === sku)
+      const incoming: Incoming = { sku, descricao, endereco, isPicking, quantidade, validadeISO }
 
-      if (existentes && existentes.length > 0) {
-        // Célula vazia (qtde/validade/descrição) nunca sobrescreve o cadastro existente
-        const { error } = await supabase.from('itens').update({
-          ...(quantidade !== null ? { quantidade } : {}),
-          ...(validadeISO ? { validade: validadeISO } : {}),
-          ...(descricao ? { descricao } : {}),
-        }).eq('id', existentes[0].id)
-        if (error) erros++
-        else atualizados++
-      } else {
-        const { error } = await supabase.from('itens').insert({
-          sku, descricao: descricao || '(sem descrição)', lote: 'S/L',
-          endereco_frac: isPicking ? endereco : '',
-          endereco_gran: isPicking ? '' : endereco,
-          quantidade: quantidade ?? 0, validade: validadeISO ?? '9999-12-31', status: 'ativo', user_id: user!.id,
+      if (mesmo) {
+        atualizar.push({ id: mesmo.id, quantidade, validadeISO })
+      } else if (ocupantes.length > 0) {
+        conflitos.push({
+          id: `c${conflitos.length}`,
+          incoming,
+          existentes: ocupantes.map(o => ({ id: o.id, sku: o.sku, descricao: o.descricao, endereco, quantidade: o.quantidade, validade: o.validade })),
         })
-        if (error) erros++
-        else criados++
+      } else {
+        criar.push(incoming)
       }
     }
 
-    await supabase.from('historico').insert({
-      descricao: `Importação de endereços: ${rows.length} linhas — ${atualizados} atualizados, ${criados} criados, ${excluidos} fora do controle, ${ignoradas} ignoradas, ${semValidade} sem validade válida, ${erros} erros`,
-      responsavel: user!.email ?? 'sistema',
-      user_id: user!.id,
-    })
+    const novoPlano: Plano = { criar, atualizar, conflitos, ignoradas, excluidos, semValidade, exemploInvalido, total: rows.length }
 
-    setStatus({ atualizados, criados, erros, ignoradas, semValidade, excluidos, exemploInvalido, total: rows.length })
-    setProgresso(null)
-    setLoading(false)
-    fetchItens()
-    toast(`Importação concluída: ${atualizados} atualizados, ${criados} criados`)
-    if (valRef.current) valRef.current.value = ''
+    if (conflitos.length === 0) {
+      await aplicarPlano(novoPlano, {})
+    } else {
+      // Sem conflitos resolvidos ainda: padrão seguro é "descartar" (mantém o existente)
+      const padrao: Record<string, ResolucaoTipo> = {}
+      for (const c of conflitos) padrao[c.id] = 'descartar'
+      setResolucoes(padrao)
+      setPlano(novoPlano)
+      setLoading(false)
+      if (valRef.current) valRef.current.value = ''
+    }
+  }
+
+  const definirTodasResolucoes = (tipo: ResolucaoTipo) => {
+    if (!plano) return
+    const novo: Record<string, ResolucaoTipo> = {}
+    for (const c of plano.conflitos) novo[c.id] = tipo
+    setResolucoes(novo)
+  }
+
+  const cancelarImportacao = () => {
+    setPlano(null)
+    setResolucoes({})
+    toast('Importação cancelada', 'info')
   }
 
   return (
@@ -237,7 +363,10 @@ export default function WmsPage() {
                 <span>· Endereco <span className="text-gray-400">(04.101.02.000)</span></span><span>· ValidadeTransPallet</span>
               </div>
             </div>
-            <p className="text-[11px] text-gray-400">O sistema detecta o formato automaticamente pelo cabeçalho.</p>
+            <p className="text-[11px] text-gray-400">
+              Detecta o formato automaticamente pelo cabeçalho. Quantidade aceita <span className="font-mono">Qtde</span>, <span className="font-mono">Qtd</span> ou <span className="font-mono">Quantidade</span> (opcional).
+              Endereço já ocupado por <strong>outro produto</strong> abre uma janela para você decidir.
+            </p>
           </div>
 
           <input ref={valRef} type="file" accept=".xls,.xlsx" onChange={processarValidades} className="hidden" />
@@ -278,6 +407,8 @@ export default function WmsPage() {
                     ⚠ {status.semValidade} sem validade válida{status.exemploInvalido ? ` (ex: "${status.exemploInvalido}")` : ''}
                   </span>
                 )}
+                {status.conflitos > 0 && <span className="bg-orange-50 text-orange-700 px-2 py-1 rounded font-semibold">⚠ {status.conflitos} conflito(s)</span>}
+                {status.excluidosConflito > 0 && <span className="bg-red-50 text-red-700 px-2 py-1 rounded font-semibold">🗑 {status.excluidosConflito} excluídos</span>}
                 {status.erros > 0 && <span className="bg-red-50 text-red-700 px-2 py-1 rounded font-semibold">✕ {status.erros} erros</span>}
               </div>
             )}
@@ -297,6 +428,61 @@ export default function WmsPage() {
           </div>
         </div>
       </div>
+
+      {/* Modal de conflitos de endereço */}
+      <Modal open={!!plano} onClose={cancelarImportacao} title={`Conflitos de endereço (${plano?.conflitos.length ?? 0})`} maxWidth="max-w-3xl">
+        <p className="text-sm text-gray-600 mb-3">
+          Estes endereços já estão ocupados por <strong>outro produto</strong>. Escolha o que fazer em cada um.
+          <span className="text-gray-400"> Produtos iguais (mesmo código no mesmo endereço) já foram atualizados automaticamente.</span>
+        </p>
+        <div className="flex flex-wrap items-center gap-2 mb-3 text-xs">
+          <span className="text-gray-500">Aplicar a todos:</span>
+          <button onClick={() => definirTodasResolucoes('descartar')} className="px-2 py-1 rounded border border-gray-200 hover:bg-gray-50">Descartar novos</button>
+          <button onClick={() => definirTodasResolucoes('ambos')} className="px-2 py-1 rounded border border-gray-200 hover:bg-gray-50">Manter os dois</button>
+          <button onClick={() => definirTodasResolucoes('excluir_existente')} className="px-2 py-1 rounded border border-gray-200 hover:bg-gray-50">Substituir todos</button>
+        </div>
+        <div className="flex flex-col gap-3 max-h-[50vh] overflow-auto pr-1">
+          {plano?.conflitos.map(cf => {
+            const sel = resolucoes[cf.id] ?? 'descartar'
+            const opt = (tipo: ResolucaoTipo, label: string) => (
+              <button
+                onClick={() => setResolucoes(prev => ({ ...prev, [cf.id]: tipo }))}
+                className={`px-2.5 py-1 rounded text-xs font-semibold border ${sel === tipo ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}
+              >{label}</button>
+            )
+            return (
+              <div key={cf.id} className="border border-gray-200 rounded-lg p-3">
+                <div className="font-mono text-xs font-bold text-gray-700 mb-2">📍 {cf.incoming.endereco}</div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                  <div className="rounded bg-gray-50 border border-gray-100 p-2">
+                    <div className="text-[10px] uppercase text-gray-400 font-semibold mb-1">No sistema</div>
+                    {cf.existentes.map(ex => (
+                      <div key={ex.id} className="leading-tight mb-1 last:mb-0">
+                        <span className="font-mono font-bold text-gray-800">{ex.sku}</span> · <span className="text-gray-600">{ex.descricao}</span>
+                        <div className="text-[10px] text-gray-400 font-mono">qtd {ex.quantidade} · {fmtDate(ex.validade)}</div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="rounded bg-blue-50 border border-blue-100 p-2">
+                    <div className="text-[10px] uppercase text-blue-400 font-semibold mb-1">Na planilha (novo)</div>
+                    <span className="font-mono font-bold text-gray-800">{cf.incoming.sku}</span> · <span className="text-gray-600">{cf.incoming.descricao}</span>
+                    <div className="text-[10px] text-gray-400 font-mono">qtd {cf.incoming.quantidade ?? '—'} · {cf.incoming.validadeISO ? fmtDate(cf.incoming.validadeISO) : '—'}</div>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2 mt-2">
+                  {opt('descartar', 'Descartar novo')}
+                  {opt('ambos', 'Manter os dois')}
+                  {opt('excluir_existente', 'Excluir existente')}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+        <div className="flex justify-end gap-3 mt-4 border-t border-gray-100 pt-4">
+          <Button variant="ghost" onClick={cancelarImportacao}>Cancelar importação</Button>
+          <Button variant="primary" onClick={() => plano && aplicarPlano(plano, resolucoes)}>Aplicar importação</Button>
+        </div>
+      </Modal>
     </div>
   )
 }
