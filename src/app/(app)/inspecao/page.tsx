@@ -75,6 +75,9 @@ export default function InspecaoPage() {
   const [qrCard, setQrCard] = useState<QrCard | null>(null)
   const qrTimerRef = useRef<number | null>(null)
   const qrValidadosRef = useRef<Set<string>>(new Set())
+  // Busca de item por código (SKU ou IT-) para inspeção individual
+  const [buscaItem, setBuscaItem] = useState('')
+  const [mostrarBuscaItem, setMostrarBuscaItem] = useState(false)
   const [validadeEncontrada, setValidadeEncontrada] = useState('') // ISO YYYY-MM-DD
   const [validadeTexto, setValidadeTexto] = useState('')           // exibição DD/MM/AAAA
   const [obs, setObs] = useState('')
@@ -430,6 +433,35 @@ export default function InspecaoPage() {
   const handleRetomar = (aberta: InspecaoAberta) => {
     retomar(aberta, itens)
     limparEstado()
+  }
+
+  // Busca de item ativo por código (SKU ou codigo_qr IT-) para inspeção individual
+  const resultadosBuscaItem = useMemo(() => {
+    const q = normalizarBusca(buscaItem)
+    if (!q) return []
+    const termos = q.split(/\s+/).filter(Boolean)
+    const res = itens.filter(i => {
+      if (i.status !== 'ativo') return false
+      const alvo = normalizarBusca(`${i.sku} ${i.codigo_qr ?? ''}`)
+      return termos.every(t => alvo.includes(t))
+    })
+    return res.slice(0, 30)
+  }, [buscaItem, itens])
+
+  // Inicia inspeção apenas do item selecionado (fluxo normal, fila = endereços do item)
+  const inspecionarItem = async (item: Item) => {
+    if (!responsavel.trim()) { toast('Informe o responsável primeiro', 'info'); return }
+    if (abertaMesmoResp) { toast('Você já tem uma inspeção aberta — retome ou cancele antes', 'info'); return }
+    const entradas: EntradaFila[] = []
+    if (item.endereco_frac) entradas.push({ item, tipo: 'frac', endereco: item.endereco_frac })
+    if (item.endereco_gran) entradas.push({ item, tipo: 'gran', endereco: item.endereco_gran })
+    if (entradas.length === 0) { toast('Item sem endereço para inspecionar', 'info'); return }
+    setMostrarBuscaItem(false); setBuscaItem('')
+    setIniciando(true)
+    const { error } = await iniciar(entradas, responsavel)
+    setIniciando(false)
+    if (error) toast('Erro ao iniciar inspeção — verifique a migration 005', 'error')
+    else { setAbertas([]); limparEstado() }
   }
 
   // Inicia a SESSÃO de inspeção por QR Code (validação contínua de paletes)
@@ -877,6 +909,47 @@ export default function InspecaoPage() {
           📷 Iniciar Inspeção por QR (Pulmão)
         </Button>
         <p className="text-[11px] text-center text-gray-400">Leia os QR das etiquetas em sequência — cada palete é validado e a leitura segue sozinha.</p>
+
+        <div className="flex items-center gap-2 text-[11px] text-gray-400">
+          <span className="flex-1 border-t border-gray-100" /> ou <span className="flex-1 border-t border-gray-100" />
+        </div>
+        {/* Busca por código — inspeção individual do item selecionado */}
+        <div className="relative">
+          <input
+            type="text"
+            value={buscaItem}
+            onChange={e => { setBuscaItem(e.target.value); setMostrarBuscaItem(true) }}
+            onFocus={() => setMostrarBuscaItem(true)}
+            placeholder="Buscar item por código (SKU ou IT-…)"
+            className="border border-gray-200 rounded-lg px-3 py-2.5 text-sm w-full font-mono focus:outline-none focus:border-blue-500"
+          />
+          {mostrarBuscaItem && buscaItem.trim() && (
+            <div className="absolute z-20 mt-1 w-full max-h-64 overflow-auto bg-white border border-gray-200 rounded-lg shadow-lg">
+              {resultadosBuscaItem.length > 0 ? resultadosBuscaItem.map(i => (
+                <button
+                  key={i.id}
+                  type="button"
+                  onClick={() => inspecionarItem(i)}
+                  className="w-full text-left px-3 py-2 hover:bg-blue-50 border-b border-gray-50 last:border-0"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-mono text-xs font-bold text-blue-700">{i.sku}</span>
+                    <span className="font-mono text-[10px] text-gray-400">{i.codigo_qr ?? ''}</span>
+                  </div>
+                  <div className="text-xs text-gray-700 truncate">{i.descricao}</div>
+                  <div className="flex items-center gap-2 text-[10px] text-gray-400 font-mono mt-0.5">
+                    <span>{i.endereco_gran || i.endereco_frac || '—'}</span>
+                    <span>·</span>
+                    <span>{fmtDate(i.validade)}</span>
+                  </div>
+                </button>
+              )) : (
+                <div className="px-3 py-3 text-xs text-gray-500">Nenhum item ativo encontrado para esse código.</div>
+              )}
+            </div>
+          )}
+        </div>
+        <p className="text-[11px] text-center text-gray-400">Busque pelo código e selecione um item para inspecioná-lo individualmente.</p>
       </div>
 
       {/* Modal — o mesmo responsável já tem inspeção em aberto */}
