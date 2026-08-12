@@ -435,27 +435,33 @@ export default function InspecaoPage() {
     limparEstado()
   }
 
-  // Busca de item ativo por código (SKU ou codigo_qr IT-) para inspeção individual
-  const resultadosBuscaItem = useMemo(() => {
+  // Busca de PRODUTO por código (SKU) ou nome — agrupa por SKU (todos os endereços)
+  const resultadosBuscaProduto = useMemo(() => {
     const q = normalizarBusca(buscaItem)
     if (!q) return []
     const termos = q.split(/\s+/).filter(Boolean)
-    const res = itens.filter(i => {
-      if (i.status !== 'ativo') return false
-      const alvo = normalizarBusca(`${i.sku} ${i.codigo_qr ?? ''}`)
-      return termos.every(t => alvo.includes(t))
-    })
-    return res.slice(0, 30)
+    const porSku = new Map<string, { sku: string; descricao: string; enderecos: number }>()
+    for (const i of itens) {
+      if (i.status !== 'ativo') continue
+      const alvo = normalizarBusca(`${i.sku} ${i.descricao} ${i.codigo_qr ?? ''}`)
+      if (!termos.every(t => alvo.includes(t))) continue
+      const e = porSku.get(i.sku) ?? { sku: i.sku, descricao: i.descricao, enderecos: 0 }
+      e.enderecos += (i.endereco_frac ? 1 : 0) + (i.endereco_gran ? 1 : 0)
+      porSku.set(i.sku, e)
+    }
+    return Array.from(porSku.values()).slice(0, 30)
   }, [buscaItem, itens])
 
-  // Inicia inspeção apenas do item selecionado (fluxo normal, fila = endereços do item)
-  const inspecionarItem = async (item: Item) => {
+  // Inicia inspeção de TODOS os endereços que contêm o produto (por SKU)
+  const inspecionarProduto = async (sku: string) => {
     if (!responsavel.trim()) { toast('Informe o responsável primeiro', 'info'); return }
     if (abertaMesmoResp) { toast('Você já tem uma inspeção aberta — retome ou cancele antes', 'info'); return }
     const entradas: EntradaFila[] = []
-    if (item.endereco_frac) entradas.push({ item, tipo: 'frac', endereco: item.endereco_frac })
-    if (item.endereco_gran) entradas.push({ item, tipo: 'gran', endereco: item.endereco_gran })
-    if (entradas.length === 0) { toast('Item sem endereço para inspecionar', 'info'); return }
+    for (const item of itens.filter(i => i.status === 'ativo' && i.sku === sku)) {
+      if (item.endereco_frac) entradas.push({ item, tipo: 'frac', endereco: item.endereco_frac })
+      if (item.endereco_gran) entradas.push({ item, tipo: 'gran', endereco: item.endereco_gran })
+    }
+    if (entradas.length === 0) { toast('Nenhum endereço encontrado para esse produto', 'info'); return }
     setMostrarBuscaItem(false); setBuscaItem('')
     setIniciando(true)
     const { error } = await iniciar(entradas, responsavel)
@@ -913,43 +919,38 @@ export default function InspecaoPage() {
         <div className="flex items-center gap-2 text-[11px] text-gray-400">
           <span className="flex-1 border-t border-gray-100" /> ou <span className="flex-1 border-t border-gray-100" />
         </div>
-        {/* Busca por código — inspeção individual do item selecionado */}
+        {/* Busca por produto — inspeciona TODOS os endereços que contêm o produto */}
         <div className="relative">
           <input
             type="text"
             value={buscaItem}
             onChange={e => { setBuscaItem(e.target.value); setMostrarBuscaItem(true) }}
             onFocus={() => setMostrarBuscaItem(true)}
-            placeholder="Buscar item por código (SKU ou IT-…)"
+            placeholder="Buscar produto por código (SKU) ou nome…"
             className="border border-gray-200 rounded-lg px-3 py-2.5 text-sm w-full font-mono focus:outline-none focus:border-blue-500"
           />
           {mostrarBuscaItem && buscaItem.trim() && (
             <div className="absolute z-20 mt-1 w-full max-h-64 overflow-auto bg-white border border-gray-200 rounded-lg shadow-lg">
-              {resultadosBuscaItem.length > 0 ? resultadosBuscaItem.map(i => (
+              {resultadosBuscaProduto.length > 0 ? resultadosBuscaProduto.map(p => (
                 <button
-                  key={i.id}
+                  key={p.sku}
                   type="button"
-                  onClick={() => inspecionarItem(i)}
+                  onClick={() => inspecionarProduto(p.sku)}
                   className="w-full text-left px-3 py-2 hover:bg-blue-50 border-b border-gray-50 last:border-0"
                 >
                   <div className="flex items-center justify-between gap-2">
-                    <span className="font-mono text-xs font-bold text-blue-700">{i.sku}</span>
-                    <span className="font-mono text-[10px] text-gray-400">{i.codigo_qr ?? ''}</span>
+                    <span className="font-mono text-xs font-bold text-blue-700">{p.sku}</span>
+                    <span className="text-[10px] text-gray-400">{p.enderecos} endereço(s)</span>
                   </div>
-                  <div className="text-xs text-gray-700 truncate">{i.descricao}</div>
-                  <div className="flex items-center gap-2 text-[10px] text-gray-400 font-mono mt-0.5">
-                    <span>{i.endereco_gran || i.endereco_frac || '—'}</span>
-                    <span>·</span>
-                    <span>{fmtDate(i.validade)}</span>
-                  </div>
+                  <div className="text-xs text-gray-700 truncate">{p.descricao}</div>
                 </button>
               )) : (
-                <div className="px-3 py-3 text-xs text-gray-500">Nenhum item ativo encontrado para esse código.</div>
+                <div className="px-3 py-3 text-xs text-gray-500">Nenhum produto ativo encontrado para esse código.</div>
               )}
             </div>
           )}
         </div>
-        <p className="text-[11px] text-center text-gray-400">Busque pelo código e selecione um item para inspecioná-lo individualmente.</p>
+        <p className="text-[11px] text-center text-gray-400">Selecione o produto para inspecionar <strong>todos os endereços</strong> que o contêm.</p>
       </div>
 
       {/* Modal — o mesmo responsável já tem inspeção em aberto */}
