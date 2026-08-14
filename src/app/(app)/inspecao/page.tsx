@@ -593,9 +593,13 @@ export default function InspecaoPage() {
 
   const handleBaixaEndereco = async () => {
     setProcessing(true)
-    await baixarEndereco(obs)
-    limparEstado()
+    const { error } = await baixarEndereco(obs)
     setProcessing(false)
+    if (error) {
+      toast(/permiss/i.test(error.message ?? '') ? 'Sem permissão para baixar endereço' : 'Erro ao baixar endereço', 'error')
+      return
+    }
+    limparEstado()
   }
 
   // Produto localizado em endereço com saldo zero: registra quantidade + validade
@@ -1287,6 +1291,10 @@ export default function InspecaoPage() {
   const saldoZero = itemAtual.quantidade === 0
   const tipoLabel = entradaAtual.tipo === 'frac' ? 'Picking' : 'Pulmão'
   const enderecoAtual = entradaAtual.endereco
+  // Pulmão sem saldo (já zerado OU contado a zero) → o palete não existe mais:
+  // confirmar = BAIXA (sai do estoque, inativo). Picking zerado continua ativo.
+  // Requer a permissão inspecao.baixar (mesma do trigger do banco).
+  const pulmaoZeradoBaixavel = entradaAtual.tipo === 'gran' && (saldoZero || zeradoNaInspecao) && can('inspecao.baixar')
 
   return (
     <div className="max-w-lg mx-auto flex flex-col gap-4">
@@ -1416,6 +1424,11 @@ export default function InspecaoPage() {
             <p className="text-sm text-gray-600">
               Confirme se o endereço <strong className="font-mono">{enderecoAtual}</strong> ({tipoLabel}) está <strong>fisicamente vazio</strong>.
             </p>
+            {pulmaoZeradoBaixavel && (
+              <p className="text-[11px] text-red-600">
+                Pulmão sem saldo — ao confirmar, o palete será <strong>baixado</strong> (sai do estoque, não volta na inspeção).
+              </p>
+            )}
             <div className="flex flex-col gap-1">
               <label className="text-xs font-semibold text-gray-400">Observação (opcional)</label>
               <textarea
@@ -1426,14 +1439,25 @@ export default function InspecaoPage() {
                 className="border border-gray-200 rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:border-gray-300 text-gray-600"
               />
             </div>
-            <Button
-              variant="ghost"
-              onClick={handleConfirmarOk}
-              disabled={processing}
-              className="w-full justify-center py-3 border-gray-300 text-gray-600"
-            >
-              {processing ? 'Salvando…' : '✓ Confirmar endereço vazio'}
-            </Button>
+            {pulmaoZeradoBaixavel ? (
+              <Button
+                variant="danger"
+                onClick={handleBaixaEndereco}
+                disabled={processing}
+                className="w-full justify-center py-3"
+              >
+                {processing ? 'Salvando…' : '🗑 Confirmar vazio e baixar palete'}
+              </Button>
+            ) : (
+              <Button
+                variant="ghost"
+                onClick={handleConfirmarOk}
+                disabled={processing}
+                className="w-full justify-center py-3 border-gray-300 text-gray-600"
+              >
+                {processing ? 'Salvando…' : '✓ Confirmar endereço vazio'}
+              </Button>
+            )}
             <button
               onClick={() => setMostrarEncontrado(true)}
               disabled={processing}
@@ -1668,20 +1692,33 @@ export default function InspecaoPage() {
                       Segregar
                     </Button>
                   )}
-                  <Button
-                    variant="primary"
-                    onClick={handleConfirmarOk}
-                    disabled={processing || (!validadeConfirmada && !zeradoNaInspecao)}
-                    className="justify-center py-3 w-full"
-                  >
-                    {processing ? 'Salvando…' : zeradoNaInspecao ? 'Confirmar saldo zero' : 'Confirmar OK'}
-                  </Button>
+                  {pulmaoZeradoBaixavel ? (
+                    <Button
+                      variant="danger"
+                      onClick={handleBaixaEndereco}
+                      disabled={processing}
+                      className="justify-center py-3 w-full"
+                    >
+                      {processing ? 'Salvando…' : '🗑 Confirmar vazio e baixar palete'}
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="primary"
+                      onClick={handleConfirmarOk}
+                      disabled={processing || (!validadeConfirmada && !zeradoNaInspecao)}
+                      className="justify-center py-3 w-full"
+                    >
+                      {processing ? 'Salvando…' : zeradoNaInspecao ? 'Confirmar saldo zero' : 'Confirmar OK'}
+                    </Button>
+                  )}
                 </div>
                 {!validadeConfirmada && !zeradoNaInspecao && (
                   <p className="text-[11px] text-center text-gray-400">Confirme a validade do produto para prosseguir</p>
                 )}
                 {zeradoNaInspecao && (
-                  <p className="text-[11px] text-center text-blue-500">Saldo zero não exige validade — o picking continua ativo</p>
+                  pulmaoZeradoBaixavel
+                    ? <p className="text-[11px] text-center text-red-500">Pulmão sem saldo — o palete será baixado (sai do estoque)</p>
+                    : <p className="text-[11px] text-center text-blue-500">Saldo zero não exige validade — o endereço continua ativo</p>
                 )}
               </div>
             )}

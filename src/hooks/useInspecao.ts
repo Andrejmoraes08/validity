@@ -321,7 +321,9 @@ export function useInspecao() {
     const { data: { user } } = await supabase.auth.getUser()
     const now = new Date().toISOString()
 
-    await supabase.from('itens').update({
+    // Verifica o erro: o trigger do banco bloqueia ativo→baixado sem permissão.
+    // Sem isso a baixa falhava em silêncio e o item continuava ativo/no estoque.
+    const { error } = await supabase.from('itens').update({
       quantidade: 0,
       status: 'baixado',
       baixado_em: now,
@@ -329,6 +331,7 @@ export function useInspecao() {
       inspecionado_por: state.responsavel,
       observacao_inspecao: obs || null,
     }).eq('id', item.id)
+    if (error) return { error }
 
     const endLabel = tipo === 'frac' ? 'Picking' : 'Pulmão'
     await supabase.from('historico').insert({
@@ -350,6 +353,7 @@ export function useInspecao() {
     } else {
       setState(s => ({ ...s, resultados: novosResultados, atual: proximo }))
     }
+    return { error: null }
   }
 
   const registrarExtra = async (resultado: Resultado) => {
