@@ -11,6 +11,7 @@ export const runtime = 'nodejs'
 
 const ACOES: Record<string, { titulo: string; cor: string; verbo: string }> = {
   segregacao:          { titulo: 'Produto Segregado',       cor: '#ea580c', verbo: 'segregou na inspeção' },
+  segregacao_estoque:  { titulo: 'Produto Segregado',       cor: '#ea580c', verbo: 'segregou pela tela de Estoque' },
   solicitar_bloqueio:  { titulo: 'Solicitação de Bloqueio', cor: '#dc2626', verbo: 'solicitou o bloqueio de' },
   bloqueio_confirmado: { titulo: 'Bloqueio Confirmado',     cor: '#7c3aed', verbo: 'confirmou o bloqueio de' },
   quarentena:          { titulo: 'Enviado para Quarentena', cor: '#7c3aed', verbo: 'enviou para quarentena' },

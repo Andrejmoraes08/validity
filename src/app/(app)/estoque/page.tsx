@@ -10,6 +10,7 @@ import { useToast } from '@/components/layout/Toast'
 import { getZone } from '@/lib/zones'
 import { fmtDateTime } from '@/lib/utils'
 import { usePerfílContext } from '@/lib/perfil-context'
+import { supabase } from '@/lib/supabase'
 import type { Item } from '@/lib/types'
 
 type StatusFilter = 'todos' | 'ativo' | 'segregado' | 'quarentena' | 'bloqueado' | 'baixado'
@@ -22,7 +23,7 @@ const DIA_MS = 86400000
 export default function EstoquePage() {
   const { itens, loading, addItem, updateItem, deleteItem } = useItens()
   const { toast } = useToast()
-  const { can } = usePerfílContext()
+  const { can, perfil } = usePerfílContext()
 
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('ativo')
@@ -37,10 +38,13 @@ export default function EstoquePage() {
 
   type ItemResumo = { validade: string; quantidade: number }
 
+  // Cor do endereço reflete só o que está fisicamente ativo ali (status ativo + saldo > 0).
+  // Sem isso, um item baixado/bloqueado/segregado (validade antiga) pintava o endereço de
+  // vermelho mesmo com o produto ativo em zona azul.
   const enderecoFracMap = useMemo(() => {
     const m = new Map<string, ItemResumo[]>()
     for (const i of itens) {
-      if (!i.endereco_frac) continue
+      if (!i.endereco_frac || i.status !== 'ativo' || i.quantidade <= 0) continue
       if (!m.has(i.endereco_frac)) m.set(i.endereco_frac, [])
       m.get(i.endereco_frac)!.push({ validade: i.validade, quantidade: i.quantidade })
     }
@@ -50,7 +54,7 @@ export default function EstoquePage() {
   const enderecoGranMap = useMemo(() => {
     const m = new Map<string, ItemResumo[]>()
     for (const i of itens) {
-      if (!i.endereco_gran) continue
+      if (!i.endereco_gran || i.status !== 'ativo' || i.quantidade <= 0) continue
       if (!m.has(i.endereco_gran)) m.set(i.endereco_gran, [])
       m.get(i.endereco_gran)!.push({ validade: i.validade, quantidade: i.quantidade })
     }
@@ -95,15 +99,50 @@ export default function EstoquePage() {
     return lista
   }, [itens, statusFilter, zoneFilter, search, filtroEndereco, filtroInspecao, ordenacao])
 
+  // Notifica o grupo do Plano de Ação quando um item é segregado pela tela de Estoque.
+  // Best-effort: a segregação já está gravada; falha de e-mail não bloqueia.
+  const notificarSegregacaoEstoque = async (item: Partial<Item>) => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const res = await fetch('/api/plano-acao/notificar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token ?? ''}` },
+        body: JSON.stringify({
+          acao: 'segregacao_estoque',
+          responsavel: perfil?.nome || perfil?.email || '',
+          item: {
+            sku: item.sku, descricao: item.descricao,
+            endereco: item.endereco_gran || item.endereco_frac || '',
+            validade: item.validade, quantidade: item.quantidade,
+          },
+        }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (res.ok && json.enviados) toast(`Plano de Ação notificado por e-mail (${json.enviados})`, 'info')
+    } catch {
+      /* e-mail é best-effort — a segregação já foi registrada */
+    }
+  }
+
   const handleSave = async (data: Partial<Item>) => {
     if (editItem) {
+      const eraSegregado = editItem.status === 'segregado'
       const { error } = await updateItem(editItem.id, data)
-      if (error) toast('Erro ao salvar', 'error')
-      else toast('Item atualizado')
+      if (error) { toast('Erro ao salvar', 'error') }
+      else {
+        toast('Item atualizado')
+        // Segregação nova (não era segregado antes) → notifica o Plano de Ação
+        if (!eraSegregado && data.status === 'segregado') {
+          await notificarSegregacaoEstoque({ ...editItem, ...data })
+        }
+      }
     } else {
       const { error } = await addItem(data as Omit<Item, 'id' | 'created_at' | 'updated_at' | 'user_id'>)
-      if (error) toast('Erro ao cadastrar', 'error')
-      else toast('Item cadastrado')
+      if (error) { toast('Erro ao cadastrar', 'error') }
+      else {
+        toast('Item cadastrado')
+        if (data.status === 'segregado') await notificarSegregacaoEstoque(data)
+      }
     }
     setEditItem(null)
     setShowForm(false)
