@@ -54,7 +54,7 @@ const novoItemVazio = {
 
 export default function InspecaoPage() {
   const { itens, loading, addItem } = useItens()
-  const { state, iniciar, iniciarQr, validarQr, retomar, buscarAbertas, cancelarAberta, confirmar, baixarEndereco, encerrar, reiniciar, registrarExtra } = useInspecao()
+  const { state, iniciar, iniciarQr, validarQr, retomar, buscarAbertas, cancelarAberta, confirmar, baixarEndereco, voltar, pular, retomarPulados, descartarPulados, encerrar, reiniciar, registrarExtra } = useInspecao()
   const { toast } = useToast()
   const { can } = usePerfílContext()
 
@@ -591,6 +591,35 @@ export default function InspecaoPage() {
     setProcessing(false)
   }
 
+  // Volta ao endereço anterior para corrigir um lançamento incorreto
+  const handleVoltar = async () => {
+    setProcessing(true)
+    await voltar()
+    limparEstado()
+    setProcessing(false)
+  }
+
+  // Pula o endereço atual e vai para o próximo (guardado para o fim da inspeção)
+  const handlePular = async () => {
+    setProcessing(true)
+    await pular()
+    limparEstado()
+    setProcessing(false)
+  }
+
+  const handleRetomarPulados = async () => {
+    setProcessing(true)
+    await retomarPulados()
+    limparEstado()
+    setProcessing(false)
+  }
+
+  const handleDescartarPulados = async () => {
+    setProcessing(true)
+    await descartarPulados()
+    setProcessing(false)
+  }
+
   const handleBaixaEndereco = async () => {
     setProcessing(true)
     const { error } = await baixarEndereco(obs)
@@ -1071,6 +1100,28 @@ export default function InspecaoPage() {
   // ── TELA DE CONCLUSÃO ────────────────────────────────────────
   if (state.phase === 'done') return (
     <div className="flex flex-col gap-6 max-w-2xl mx-auto">
+      {/* Endereços pulados — pergunta antes de exibir o relatório */}
+      <Modal open={state.pulados.length > 0} onClose={handleDescartarPulados} title="Endereços pulados">
+        <div className="flex flex-col gap-4">
+          <p className="text-sm text-gray-600">
+            Você pulou <strong>{state.pulados.length}</strong> endereço{state.pulados.length > 1 ? 's' : ''} nesta inspeção.
+            Deseja retomar os endereços pulados agora?
+          </p>
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 max-h-40 overflow-auto">
+            <ul className="text-xs text-amber-800 font-mono flex flex-col gap-1">
+              {state.pulados.map((p, i) => (
+                <li key={i}>{p.tipo === 'frac' ? 'Picking' : 'Pulmão'} · {p.endereco} · {p.item.sku}</li>
+              ))}
+            </ul>
+          </div>
+          <div className="flex justify-end gap-3">
+            <Button variant="ghost" onClick={handleDescartarPulados} disabled={processing}>Não, concluir</Button>
+            <Button variant="primary" onClick={handleRetomarPulados} disabled={processing}>
+              {processing ? 'Retomando…' : 'Sim, retomar pulados'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
       <div className="bg-white rounded-xl border border-green-100 p-6 shadow-sm text-center">
         <div className="text-4xl mb-3">✓</div>
         <h2 className="text-lg font-extrabold text-gray-900">
@@ -1307,6 +1358,15 @@ export default function InspecaoPage() {
             Item {state.atual + 1} de {state.fila.length} — {state.responsavel}
             {state.iniciadaEm ? ` · ${new Date(state.iniciadaEm).toLocaleDateString('pt-BR')}` : ''}
           </p>
+          {state.atual > 0 && (
+            <button
+              onClick={handleVoltar}
+              disabled={processing}
+              className="mt-1.5 inline-flex items-center gap-1 text-xs font-semibold text-gray-600 border border-gray-200 bg-white hover:bg-gray-50 px-2.5 py-1 rounded-lg transition-colors disabled:opacity-50"
+            >
+              ◀ Voltar ao anterior
+            </button>
+          )}
         </div>
         <div className="flex items-center gap-3">
           <div className="text-right">
@@ -1321,6 +1381,13 @@ export default function InspecaoPage() {
               className="flex items-center justify-center gap-1 text-xs font-semibold text-blue-600 border border-blue-200 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg transition-colors"
             >
               + Endereço
+            </button>
+            <button
+              onClick={handlePular}
+              disabled={processing}
+              className="flex items-center justify-center gap-1 text-xs font-semibold text-amber-700 border border-amber-200 bg-amber-50 hover:bg-amber-100 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50"
+            >
+              ⤼ Pular
             </button>
             <button
               onClick={() => setConfirmEncerrar(true)}

@@ -65,6 +65,7 @@ export interface InspecaoState {
   fila: EntradaFila[]
   atual: number
   resultados: Resultado[]
+  pulados: EntradaFila[]
 }
 
 const initial: InspecaoState = {
@@ -76,6 +77,7 @@ const initial: InspecaoState = {
   fila: [],
   atual: 0,
   resultados: [],
+  pulados: [],
 }
 
 function toResultadoPersist(r: Resultado): ResultadoPersist {
@@ -174,6 +176,7 @@ export function useInspecao() {
       fila,
       atual: 0,
       resultados: [],
+      pulados: [],
     })
     return { error: null }
   }
@@ -225,6 +228,7 @@ export function useInspecao() {
       fila,
       atual,
       resultados,
+      pulados: [],
     })
   }
 
@@ -300,14 +304,19 @@ export function useInspecao() {
     })
 
     const proximo = state.atual + 1
-    const done = proximo >= state.fila.length
-    if (state.inspecaoId) await persistir(state.inspecaoId, proximo, novosResultados, done)
-    if (done) {
-      await supabase.from('historico').insert({
-        descricao: `Inspeção #${state.numero} concluída — ${novosResultados.length} endereços inspecionados`,
-        responsavel: state.responsavel,
-        user_id: user!.id,
-      })
+    const chegouFim = proximo >= state.fila.length
+    // Só finaliza de fato quando não há endereços pulados; com pulados vai para a
+    // tela de conclusão, mas a decisão de retomar os pulados ainda está pendente.
+    const finalizar = chegouFim && state.pulados.length === 0
+    if (state.inspecaoId) await persistir(state.inspecaoId, proximo, novosResultados, finalizar)
+    if (chegouFim) {
+      if (finalizar) {
+        await supabase.from('historico').insert({
+          descricao: `Inspeção #${state.numero} concluída — ${novosResultados.length} endereços inspecionados`,
+          responsavel: state.responsavel,
+          user_id: user!.id,
+        })
+      }
       setState(s => ({ ...s, resultados: novosResultados, phase: 'done' }))
     } else {
       setState(s => ({ ...s, resultados: novosResultados, atual: proximo }))
@@ -346,9 +355,10 @@ export function useInspecao() {
     }
     const novosResultados = [...state.resultados, resultado]
     const proximo = state.atual + 1
-    const done = proximo >= state.fila.length
-    if (state.inspecaoId) await persistir(state.inspecaoId, proximo, novosResultados, done)
-    if (done) {
+    const chegouFim = proximo >= state.fila.length
+    const finalizar = chegouFim && state.pulados.length === 0
+    if (state.inspecaoId) await persistir(state.inspecaoId, proximo, novosResultados, finalizar)
+    if (chegouFim) {
       setState(s => ({ ...s, resultados: novosResultados, phase: 'done' }))
     } else {
       setState(s => ({ ...s, resultados: novosResultados, atual: proximo }))
@@ -360,6 +370,71 @@ export function useInspecao() {
     const novosResultados = [...state.resultados, resultado]
     setState(s => ({ ...s, resultados: novosResultados }))
     if (state.inspecaoId) await persistir(state.inspecaoId, state.atual, novosResultados, false)
+  }
+
+  // Volta ao endereço anterior para corrigir um lançamento incorreto: recua o
+  // índice e remove o resultado já registrado daquele endereço (o inspetor o
+  // refaz). A correção é gravada ao confirmar de novo (sobrescreve o item).
+  const voltar = async () => {
+    if (state.atual <= 0) return
+    const alvo = state.fila[state.atual - 1]
+    // Remove o último resultado correspondente ao endereço para o qual voltamos
+    let idx = -1
+    for (let k = state.resultados.length - 1; k >= 0; k--) {
+      const e = state.resultados[k].entrada
+      if (e.item.id === alvo.item.id && e.tipo === alvo.tipo && e.endereco === alvo.endereco) { idx = k; break }
+    }
+    const novosResultados = idx >= 0
+      ? [...state.resultados.slice(0, idx), ...state.resultados.slice(idx + 1)]
+      : state.resultados
+    // Se o endereço para o qual voltamos estava pulado, tira-o dos pulados (será refeito agora)
+    const novosPulados = state.pulados.filter(p => !(p.item.id === alvo.item.id && p.tipo === alvo.tipo && p.endereco === alvo.endereco))
+    const novoAtual = state.atual - 1
+    if (state.inspecaoId) await persistir(state.inspecaoId, novoAtual, novosResultados, false)
+    setState(s => ({ ...s, atual: novoAtual, resultados: novosResultados, pulados: novosPulados }))
+  }
+
+  // Pula o endereço atual (sem lançar nada) e vai para o próximo; guarda para o fim.
+  const pular = async () => {
+    const entrada = state.fila[state.atual]
+    const proximo = state.atual + 1
+    const novosPulados = [...state.pulados, entrada]
+    if (state.inspecaoId) await persistir(state.inspecaoId, proximo, state.resultados, false)
+    if (proximo >= state.fila.length) {
+      // Fim da fila com pulados → tela de conclusão pergunta se deseja retomá-los
+      setState(s => ({ ...s, atual: proximo, pulados: novosPulados, phase: 'done' }))
+    } else {
+      setState(s => ({ ...s, atual: proximo, pulados: novosPulados }))
+    }
+  }
+
+  // "Deseja retomar os endereços pulados?" → Sim: recoloca os pulados no fim da fila.
+  const retomarPulados = async () => {
+    const inicio = state.fila.length
+    const novaFila = [...state.fila, ...state.pulados]
+    const filaPersist: FilaPersist[] = novaFila.map(e => ({
+      item_id: e.item.id, sku: e.item.sku, tipo: e.tipo, endereco: e.endereco,
+    }))
+    if (state.inspecaoId) {
+      await supabase.from('inspecoes').update({ fila: filaPersist, atual: inicio }).eq('id', state.inspecaoId)
+    }
+    setState(s => ({ ...s, fila: novaFila, atual: inicio, pulados: [], phase: 'active' }))
+  }
+
+  // "Deseja retomar os endereços pulados?" → Não: conclui a inspeção deixando-os de fora.
+  const descartarPulados = async () => {
+    if (state.inspecaoId) {
+      const { data: { user } } = await supabase.auth.getUser()
+      await supabase.from('inspecoes').update({
+        status: 'concluida', finalizada_em: new Date().toISOString(),
+      }).eq('id', state.inspecaoId)
+      await supabase.from('historico').insert({
+        descricao: `Inspeção #${state.numero} concluída — ${state.resultados.length} inspecionados, ${state.pulados.length} pulados não inspecionados`,
+        responsavel: state.responsavel,
+        user_id: user!.id,
+      })
+    }
+    setState(s => ({ ...s, pulados: [] }))
   }
 
   // Inspeção por QR Code: sessão de validação contínua de paletes (fila cresce a cada leitura)
@@ -387,6 +462,7 @@ export function useInspecao() {
       fila: [],
       atual: 0,
       resultados: [],
+      pulados: [],
     })
     return { error: null }
   }
@@ -444,5 +520,5 @@ export function useInspecao() {
 
   const reiniciar = () => setState(initial)
 
-  return { state, iniciar, iniciarQr, validarQr, retomar, buscarAbertas, cancelarAberta, confirmar, baixarEndereco, encerrar, reiniciar, registrarExtra }
+  return { state, iniciar, iniciarQr, validarQr, retomar, buscarAbertas, cancelarAberta, confirmar, baixarEndereco, voltar, pular, retomarPulados, descartarPulados, encerrar, reiniciar, registrarExtra }
 }
