@@ -44,6 +44,16 @@ export function semControleValidade(descricao: string): boolean {
   const d = (descricao || '').toUpperCase().trim()
   if (!d) return false
 
+  // Exceções específicas de produto (TÊM validade) — mantidas mesmo caindo em categoria excluída
+  const excecaoProduto =
+    (d.includes('PITU') && (d.includes('350ML') || d.includes('710ML'))) || // Pitu 350ml (sabores) e 710ml
+    (d.includes('CATUABA') && d.includes('300ML')) ||                        // Catuaba 300ml
+    d.includes('ROSKOFF') || d.includes('ROSKOF') ||                         // Vodka Roskoff (com sabor)
+    d.includes('CHUVA DE PRATA') ||                                          // Espumante Chuva de Prata
+    d.includes('PINK MOON') ||                                              // Frisante Pink Moon
+    d.includes('AZUMA FLAVORS')                                             // Sake Azuma Flavors
+  if (excecaoProduto) return false
+
   // Exceções que TÊM validade (baixo teor / RTD / sem álcool / coquetel) — sempre mantidas
   const excecoes = [
     'S/AL', 'S/A ', 'SEM ALCOOL', 'ZERO',        // sem álcool
