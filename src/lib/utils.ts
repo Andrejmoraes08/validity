@@ -46,7 +46,7 @@ export function semControleValidade(descricao: string): boolean {
 
   // Exceções específicas de produto (TÊM validade) — mantidas mesmo caindo em categoria excluída
   const excecaoProduto =
-    (d.includes('PITU') && (d.includes('350ML') || d.includes('710ML'))) || // Pitu 350ml (sabores) e 710ml
+    (d.includes('PITU') && (d.includes('350ML') || d.includes('473ML') || d.includes('710ML') || d.includes('AMARELINHA'))) || // Pitu 350/473/710ml e Amarelinha
     (d.includes('CATUABA') && d.includes('300ML')) ||                        // Catuaba 300ml
     d.includes('ROSKOFF') || d.includes('ROSKOF') ||                         // Vodka Roskoff (com sabor)
     d.includes('CHUVA DE PRATA') ||                                          // Espumante Chuva de Prata
